@@ -49,6 +49,8 @@ export function activate(context: vscode.ExtensionContext): void {
     () => sessions.refresh(),
   );
 
+  sessions.setLiveSource(() => chat.liveSessions());
+
   void history.load().then(() => {
     changes.refresh();
     timeline.refresh();
@@ -115,6 +117,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand("rostrum.loadSession", async (sessionId: string) => {
       await chat.loadSessionById(sessionId);
+    }),
+
+    vscode.commands.registerCommand("rostrum.revealSession", async (controllerId: string) => {
+      await chat.revealSession(controllerId);
     }),
 
     vscode.commands.registerCommand("rostrum.deleteSession", async (sessionId: string) => {

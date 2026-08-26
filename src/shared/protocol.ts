@@ -83,6 +83,34 @@ export interface SessionMeta {
   updatedAt: number;
 }
 
+/**
+ * Where a live conversation is in its lifecycle.
+ *
+ * `awaiting-approval` is deliberately distinct from `running`: a background
+ * session blocked on a permission prompt needs the user, and has to be
+ * distinguishable at a glance from one that is merely busy.
+ */
+export type SessionLifecycle =
+  | "idle"
+  | "running"
+  | "awaiting-approval"
+  | "error"
+  | "disconnected";
+
+/** A conversation this window is currently running. */
+export interface LiveSession {
+  /** Stable across ACP session-id changes, so it survives a fork. */
+  controllerId: string;
+  /** Null for a transcript loaded read-only, with no ACP session behind it. */
+  sessionId: string | null;
+  agentKey: string;
+  title: string;
+  lifecycle: SessionLifecycle;
+  active: boolean;
+  updatedAt: number;
+  queued: number;
+}
+
 export type ModeOption = { id: string; name: string; description?: string };
 
 /** Which optional ACP methods the connected agent actually supports. */
@@ -156,6 +184,8 @@ export interface ViewState {
   plan: PlanEntry[];
   queued: string[];
   promptCapabilities: { image: boolean; audio: boolean; embeddedContext: boolean };
+  /** Every conversation this window is running, not just the visible one. */
+  liveSessions: LiveSession[];
 }
 
 /** A slash command the agent advertises. */
@@ -182,6 +212,8 @@ export type ViewMessage =
   | { type: "selectMode"; mode: string }
   | { type: "pickSession" }
   | { type: "loadSession"; sessionId: string }
+  /** Bring an already-running conversation on screen by controller id. */
+  | { type: "revealSession"; controllerId: string }
   | { type: "openDiff"; path: string; line?: number }
   | { type: "forkSession" }
   | { type: "setConfigOption"; id: string; value: string | boolean }

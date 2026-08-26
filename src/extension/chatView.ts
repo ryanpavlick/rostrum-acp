@@ -4,11 +4,13 @@ import type {
   Block,
   Capabilities,
   ConfigOption,
+  LiveSession,
   PlanEntry,
   SlashCommand,
   HostMessage,
   ModeOption,
   PendingRequest,
+  SessionLifecycle,
   SessionMeta,
   Turn,
   UsageSummary,
@@ -17,24 +19,12 @@ import type {
 } from "../shared/protocol.js";
 import type { AgentDefinition } from "./agentProcess.js";
 import { AgentConnection, connectionKey } from "./agentConnection.js";
-import { ManagedSession, type SessionLifecycle } from "./managedSession.js";
+import { ManagedSession } from "./managedSession.js";
 import { Session, displayBlocks, type PermissionMode } from "./session.js";
 import { SessionStore, deriveTitle, type StoredSession } from "./store.js";
 import type { UsageTracker } from "./usage.js";
 import { NO_CAPABILITIES } from "./capabilities.js";
 import { mcpServersFromConfig, type McpServerDefinition } from "./mcp.js";
-
-/** A live conversation, as the sidebar and pickers need to describe it. */
-export interface LiveSessionMeta {
-  controllerId: string;
-  sessionId: string | null;
-  agentKey: string;
-  title: string;
-  lifecycle: SessionLifecycle;
-  active: boolean;
-  updatedAt: number;
-  queued: number;
-}
 
 /**
  * The chat sidebar.
@@ -101,7 +91,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   /** Live conversations, newest first, for the picker and the sidebar. */
-  liveSessions(): LiveSessionMeta[] {
+  liveSessions(): LiveSession[] {
     return [...this.sessions.values()]
       .map((controller) => ({
         controllerId: controller.id,
@@ -159,6 +149,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const controller = picked.controllerId ? this.sessions.get(picked.controllerId) : undefined;
     if (controller) await this.activate(controller);
     else if (picked.sessionId) await this.loadSessionById(picked.sessionId);
+  }
+
+  /**
+   * Bring an already-running conversation on screen.
+   *
+   * Addressed by controller id rather than ACP session id, so it also reaches
+   * a read-only transcript, which has no session id at all.
+   */
+  async revealSession(controllerId: string): Promise<void> {
+    const controller = this.sessions.get(controllerId);
+    if (!controller) {
+      this.post({ type: "error", message: "That conversation is no longer running." });
+      return;
+    }
+    await this.activate(controller);
   }
 
   /** Public command entry point; callers decide whether to ask for confirmation. */
@@ -650,6 +655,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         break;
       case "loadSession":
         await this.loadSessionById(message.sessionId);
+        break;
+      case "revealSession":
+        await this.revealSession(message.controllerId);
         break;
       case "forkSession":
         if (controller) await this.forkSession(controller);
@@ -1158,6 +1166,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       plan: controller?.plan ?? [],
       queued: controller?.queue ?? [],
       promptCapabilities: connection?.promptCaps ?? { image: false, audio: false, embeddedContext: false },
+      liveSessions: this.liveSessions(),
     };
     this.post({ type: "state", state });
     this.publishTurns();

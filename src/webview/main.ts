@@ -38,6 +38,7 @@ const state: ViewState = {
   plan: [],
   queued: [],
   promptCapabilities: { image: false, audio: false, embeddedContext: false },
+  liveSessions: [],
 };
 
 let attachmentNames: string[] = [];

@@ -163,6 +163,10 @@
       {
         "command": "rostrum.showAgentLog",
         "title": "Rostrum: Show Agent Log"
+      },
+      {
+        "command": "rostrum.revealSession",
+        "title": "Rostrum: Show Conversation"
       }
     ],
     "menus": {
@@ -222,6 +226,10 @@
         },
         {
           "command": "rostrum.revealTurn",
+          "when": "false"
+        },
+        {
+          "command": "rostrum.revealSession",
           "when": "false"
         }
       ]
@@ -288,8 +296,8 @@
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "build:test": "esbuild src/manager.ts src/extension/session.ts src/extension/agentProcess.ts src/extension/questions.ts src/extension/registry.ts src/extension/usage.ts src/extension/history.ts src/extension/capabilities.ts src/extension/terminals.ts src/extension/store.ts src/extension/mcp.ts src/extension/router.ts src/extension/managedSession.ts src/extension/agentConnection.ts src/extension/chatView.ts --bundle --platform=node --target=node20 --format=esm --outdir=out/test --external:vscode --alias:vscode=./test/stubs/vscode.ts",
-    "test": "npm run build:test -s && node test/units.mjs && node test/regressions.mjs && node test/features.mjs && node test/manager.mjs && node test/concurrency.mjs && node test/provider.mjs && node test/roundtrip.mjs",
+    "build:test": "rm -rf out/test && esbuild src/extension/session.ts src/extension/agentProcess.ts src/extension/questions.ts src/extension/registry.ts src/extension/usage.ts src/extension/history.ts src/extension/capabilities.ts src/extension/terminals.ts src/extension/store.ts src/extension/mcp.ts src/extension/router.ts src/extension/managedSession.ts src/extension/agentConnection.ts src/extension/chatView.ts src/extension/trees.ts --bundle --platform=node --target=node20 --format=esm --outdir=out/test --outbase=src/extension --external:vscode --alias:vscode=./test/stubs/vscode.ts && esbuild src/manager.ts --bundle --platform=node --target=node20 --format=esm --outdir=out/test --outbase=src",
+    "test": "npm run build:test -s && node test/units.mjs && node test/regressions.mjs && node test/features.mjs && node test/manager.mjs && node test/concurrency.mjs && node test/provider.mjs && node test/trees.mjs && node test/roundtrip.mjs",
     "test:live": "npm run build:test -s && node test/smoke-qwen.mjs"
   },
   "devDependencies": {

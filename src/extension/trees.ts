@@ -1,26 +1,135 @@
 import * as vscode from "vscode";
-import type { SessionMeta, ToolCall, Turn } from "../shared/protocol.js";
+import type {
+  LiveSession,
+  SessionLifecycle,
+  SessionMeta,
+  ToolCall,
+  Turn,
+} from "../shared/protocol.js";
 import type { ChangeHistory, EditRecord, FileHistory } from "./history.js";
 import type { SessionStore } from "./store.js";
 import { formatTokens, type UsageTracker } from "./usage.js";
 
-/** Past conversations, newest first. */
-export class SessionsTree implements vscode.TreeDataProvider<SessionMeta> {
+/**
+ * One row in the Sessions view: a heading, a conversation this window is
+ * running, or a saved transcript.
+ */
+export type SessionNode =
+  | { type: "group"; id: string; label: string; children: SessionNode[] }
+  | { type: "live"; session: LiveSession }
+  | { type: "stored"; session: SessionMeta };
+
+/**
+ * How a live conversation is drawn.
+ *
+ * A background session that needs the user has to be findable without opening
+ * it, so lifecycle drives both the icon and its colour rather than being
+ * buried in a tooltip.
+ */
+const LIFECYCLE_PRESENTATION: Record<
+  SessionLifecycle,
+  { icon: string; color?: string; label: string }
+> = {
+  running: { icon: "sync~spin", color: "charts.blue", label: "running" },
+  "awaiting-approval": {
+    icon: "question",
+    color: "notificationsWarningIcon.foreground",
+    label: "needs approval",
+  },
+  error: { icon: "error", color: "notificationsErrorIcon.foreground", label: "error" },
+  disconnected: { icon: "debug-disconnect", color: "disabledForeground", label: "disconnected" },
+  idle: { icon: "comment-discussion", label: "idle" },
+};
+
+const DAY = 24 * 60 * 60 * 1000;
+
+/** Bucket a saved conversation by age, so long histories stay navigable. */
+function period(updatedAt: number, now: number): { id: string; label: string; order: number } {
+  const startOfToday = new Date(now).setHours(0, 0, 0, 0);
+  if (updatedAt >= startOfToday) return { id: "today", label: "Today", order: 1 };
+  if (updatedAt >= startOfToday - DAY) return { id: "yesterday", label: "Yesterday", order: 2 };
+  if (updatedAt >= startOfToday - 7 * DAY) return { id: "week", label: "Previous 7 days", order: 3 };
+  if (updatedAt >= startOfToday - 30 * DAY) return { id: "month", label: "Previous 30 days", order: 4 };
+  return { id: "older", label: "Older", order: 5 };
+}
+
+/**
+ * Conversations this window is running, above the saved history.
+ *
+ * Live rows come from the chat provider rather than the store, because a
+ * running conversation may not have been persisted yet — and its status
+ * changes without anything being written.
+ */
+export class SessionsTree implements vscode.TreeDataProvider<SessionNode> {
   private readonly changed = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.changed.event;
 
+  private live: () => LiveSession[] = () => [];
+
   constructor(private readonly store: SessionStore) {}
+
+  /**
+   * Point the tree at the chat provider's live conversations.
+   *
+   * Set after construction because the provider needs this tree's `refresh`
+   * in its own constructor.
+   */
+  setLiveSource(live: () => LiveSession[]): void {
+    this.live = live;
+  }
 
   refresh(): void {
     this.changed.fire();
   }
 
-  getTreeItem(session: SessionMeta): vscode.TreeItem {
+  getTreeItem(node: SessionNode): vscode.TreeItem {
+    if (node.type === "group") {
+      const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.Expanded);
+      item.description = String(node.children.length);
+      item.contextValue = "rostrum.sessionGroup";
+      item.id = `group:${node.id}`;
+      return item;
+    }
+
+    if (node.type === "live") {
+      const { session } = node;
+      const presentation = LIFECYCLE_PRESENTATION[session.lifecycle];
+      const item = new vscode.TreeItem(session.title, vscode.TreeItemCollapsibleState.None);
+      const queued = session.queued > 0 ? ` · ${session.queued} queued` : "";
+      item.description = `${session.agentKey} · ${presentation.label}${queued}`;
+      item.iconPath = new vscode.ThemeIcon(
+        presentation.icon,
+        presentation.color ? new vscode.ThemeColor(presentation.color) : undefined,
+      );
+      item.tooltip = new vscode.MarkdownString(
+        [
+          `**${session.title}**`,
+          "",
+          `Agent: \`${session.agentKey}\``,
+          `Status: ${presentation.label}`,
+          session.sessionId ? `Session: \`${session.sessionId}\`` : "Saved transcript (read-only)",
+          `Updated: ${new Date(session.updatedAt).toLocaleString()}`,
+        ].join("\n\n"),
+      );
+      // Only a persisted conversation can be exported or deleted by id.
+      item.contextValue = session.sessionId ? "rostrum.session" : "rostrum.liveSession";
+      item.id = `live:${session.controllerId}`;
+      item.resourceUri = undefined;
+      if (session.active) item.label = { label: session.title, highlights: [[0, session.title.length]] };
+      item.command = {
+        command: "rostrum.revealSession",
+        title: "Show conversation",
+        arguments: [session.controllerId],
+      };
+      return item;
+    }
+
+    const { session } = node;
     const item = new vscode.TreeItem(session.title, vscode.TreeItemCollapsibleState.None);
     item.description = `${session.agentKey} · ${new Date(session.updatedAt).toLocaleString()}`;
-    item.iconPath = new vscode.ThemeIcon("comment-discussion");
+    item.iconPath = new vscode.ThemeIcon("history");
     item.contextValue = "rostrum.session";
-    item.id = session.sessionId;
+    item.id = `stored:${session.sessionId}`;
     item.command = {
       command: "rostrum.loadSession",
       title: "Load session",
@@ -29,8 +138,37 @@ export class SessionsTree implements vscode.TreeDataProvider<SessionMeta> {
     return item;
   }
 
-  getChildren(): Promise<SessionMeta[]> {
-    return this.store.list();
+  async getChildren(node?: SessionNode): Promise<SessionNode[]> {
+    if (node) return node.type === "group" ? node.children : [];
+
+    const live = this.live();
+    const groups: SessionNode[] = [];
+    if (live.length > 0) {
+      groups.push({
+        type: "group",
+        id: "active",
+        label: "Active",
+        children: live.map((session) => ({ type: "live" as const, session })),
+      });
+    }
+
+    // A conversation that is on screen must not also appear as history.
+    const liveIds = new Set(live.flatMap((session) => (session.sessionId ? [session.sessionId] : [])));
+    const stored = (await this.store.list()).filter((session) => !liveIds.has(session.sessionId));
+
+    const now = Date.now();
+    const buckets = new Map<string, { label: string; order: number; children: SessionNode[] }>();
+    for (const session of stored) {
+      const bucket = period(session.updatedAt, now);
+      const entry = buckets.get(bucket.id) ?? { label: bucket.label, order: bucket.order, children: [] };
+      entry.children.push({ type: "stored", session });
+      buckets.set(bucket.id, entry);
+    }
+
+    for (const [id, bucket] of [...buckets].sort((a, b) => a[1].order - b[1].order)) {
+      groups.push({ type: "group", id, label: bucket.label, children: bucket.children });
+    }
+    return groups;
   }
 }
 

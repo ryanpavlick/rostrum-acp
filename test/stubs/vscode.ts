@@ -104,3 +104,45 @@ export const window = {
 
 export const ConfigurationTarget = { Global: 1, Workspace: 2, WorkspaceFolder: 3 };
 export const ProgressLocation = { Notification: 15 };
+
+export class EventEmitter<T> {
+  private readonly listeners: ((value: T) => void)[] = [];
+  readonly event = (listener: (value: T) => void) => {
+    this.listeners.push(listener);
+    return { dispose: () => undefined };
+  };
+  fire(value?: T): void {
+    for (const listener of this.listeners) listener(value as T);
+  }
+  dispose(): void {
+    this.listeners.length = 0;
+  }
+}
+
+export const TreeItemCollapsibleState = { None: 0, Collapsed: 1, Expanded: 2 };
+
+export class ThemeColor {
+  constructor(readonly id: string) {}
+}
+
+export class ThemeIcon {
+  constructor(readonly id: string, readonly color?: ThemeColor) {}
+}
+
+export class MarkdownString {
+  constructor(readonly value = "") {}
+}
+
+export class TreeItem {
+  description?: string | boolean;
+  iconPath?: unknown;
+  contextValue?: string;
+  id?: string;
+  tooltip?: unknown;
+  resourceUri?: unknown;
+  command?: { command: string; title: string; arguments?: unknown[] };
+  constructor(
+    public label: unknown,
+    readonly collapsibleState: number = TreeItemCollapsibleState.None,
+  ) {}
+}

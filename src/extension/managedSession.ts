@@ -12,25 +12,14 @@ import type {
   ConfigOption,
   PendingRequest,
   PlanEntry,
+  SessionLifecycle,
   SlashCommand,
   UsageSummary,
 } from "../shared/protocol.js";
 import type { Session } from "./session.js";
 import type { AgentConnection } from "./agentConnection.js";
 
-/**
- * Where a session is in its lifecycle.
- *
- * `awaiting-approval` is deliberately distinct from `running`: a background
- * session blocked on a permission prompt needs the user, and must be
- * distinguishable at a glance from one that is merely busy.
- */
-export type SessionLifecycle =
-  | "idle"
-  | "running"
-  | "awaiting-approval"
-  | "error"
-  | "disconnected";
+export type { SessionLifecycle };
 
 let counter = 0;
 
