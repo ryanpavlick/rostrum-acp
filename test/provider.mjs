@@ -13,14 +13,23 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import { ChatViewProvider } from "../out/test/chatView.js";
-import { AgentConnection } from "../out/test/agentConnection.js";
+import { AgentConnection, connectionKey } from "../out/test/agentConnection.js";
 import { SessionStore } from "../out/test/store.js";
 import { UsageTracker } from "../out/test/usage.js";
-import { stub } from "../out/test/stubs/vscode.js";
+
+/** The vscode stub is inlined into each bundle but shares one state object. */
+const stub = globalThis.__rostrumVscodeStub;
 
 let passed = 0;
 const ok = (n) => { passed += 1; console.log(`  ok  ${n}`); };
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+const until = async (condition, what) => {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    if (condition()) return;
+    await tick();
+  }
+  assert.fail(`timed out waiting for ${what}`);
+};
 
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "rostrum-provider-"));
 
@@ -89,10 +98,13 @@ class TestProvider extends ChatViewProvider {
   }
 
   connect(agentKey, definition, workspaceRoot) {
+    const resolved = { ...definition, cwd: definition.cwd ?? workspaceRoot };
     return AgentConnection.attach({
       agentKey,
-      key: `${agentKey}-test`,
-      definition,
+      // The same fingerprint the provider computes, so a reveal reattaches
+      // instead of silently tearing the connection down and rebuilding it.
+      key: connectionKey(agentKey, workspaceRoot, resolved),
+      definition: resolved,
       persistent: false,
       onUnroutable: () => {},
       launch: (client) => {
@@ -230,19 +242,28 @@ const textOf = (turns) =>
   );
   ok("a background permission request notifies instead of auto-approving");
 
-  // Opening the session from the notification puts the request back on screen,
-  // where answering it resolves the agent's original call.
-  stub.nextNotificationChoice = "Open session";
-  await agent.say("session-1", "still waiting");
-  await tick();
-  await agent.ask("session-1", "Second ask").catch(() => {});
-  await tick();
+  assert.equal(
+    provider.active().sessionId,
+    "session-2",
+    "the notification alone must not yank the user out of what they were doing",
+  );
 
-  const pendingRequestId = provider.active().pending.requestId;
-  await provider.handleMessage({ type: "respond", requestId: pendingRequestId, optionId: "yes" });
+  // Opening the session from its notification puts the request back on screen,
+  // where answering it resolves the agent's original call.
+  await provider.loadSessionById("session-1");
+  await until(() => provider.active()?.sessionId === "session-1", "the session to come on screen");
+
+  const request = provider.active().pending;
+  assert.equal(request.title, "Write src/index.ts", "the ask survived being off screen");
+  await provider.handleMessage({ type: "respond", requestId: request.requestId, optionId: "yes" });
   const outcome = await permission;
   assert.deepEqual(outcome.outcome, { outcome: "selected", optionId: "yes" });
-  ok("answering an activated background request reaches the agent that asked");
+  assert.equal(
+    provider.liveSessions().find((s) => s.sessionId === "session-1").lifecycle,
+    "running",
+    "answering returns the session to merely running",
+  );
+  ok("answering an approval opened from the notification reaches the agent that asked");
 
   agent.finish("session-1");
   await background;
@@ -262,7 +283,7 @@ const textOf = (turns) =>
 
   posted.length = 0;
   await provider.startAgent("scripted");
-  const state = posted.filter((m) => m.type === "state").pop();
+  const { state } = posted.filter((m) => m.type === "state").pop();
   assert.equal(state.currentAgent, "scripted");
   assert.deepEqual(textOf(state.turns), ["hello from scripted"]);
   ok("switching back to an agent reveals its conversation, not a fresh one");
