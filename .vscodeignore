@@ -9,3 +9,6 @@ tsconfig.json
 **/*.map
 **/*.ts
 *.vsix
+HANDOFF.md
+.github/**
+*.code-workspace

@@ -11,7 +11,7 @@ Multicoder’s documented differentiators are a local server that outlives VS Co
 - Package: `rostrum` / Rostrum ACP, currently `0.10.0`.
 - Repository: `https://github.com/ryanpavlick/rostrum` (private), branch `main`.
 - Production build: `npm run build`.
-- Full automated suite: `npm test` — currently green: 20 unit, 7 regression, 9 feature, 16 supervisor, 13 concurrency, 9 provider, 10 sessions view, 7 export, 15 discovery, 19 markdown, 13 highlight, and 1 ACP round-trip check.
+- Full automated suite: `npm test` — currently green: 20 unit, 7 regression, 9 feature, 16 supervisor, 13 concurrency, 9 provider, 10 sessions view, 7 export, 15 discovery, 19 markdown, 13 highlight, 17 workspace view, and 1 ACP round-trip check.
 - Package: `npx vsce package --no-dependencies`.
 - `test/mock-agent.py` is Python because an earlier sandbox suppressed Node processes spawned by another Node process. **That constraint no longer holds in the current environment** (verified: Node spawns Node, detached and piped, fine). The Python mock still works and is kept; new supervisor tests use a Node child (`test/echo-agent.mjs`) directly.
 
@@ -71,6 +71,15 @@ The `parked` agent map is gone; it was replaced, not extended.
 3. Mermaid builds DOM from strings internally and has a history of XSS findings. Feeding it untrusted agent output directly contradicts the invariant the rest of the renderer now guarantees.
    A safer route, if these are wanted: render diagrams and math in an isolated child webview with its own restrictive CSP, or offer "open this diagram in a Mermaid preview" rather than inlining it.
 
+### 0.16 change/workspace UX — landed
+
+Each part's shaping logic lives outside the tree classes so it can be tested directly.
+
+- **Changes view**: a folder/flat toggle (`rostrum.changesAsTree` / `rostrum.changesAsList`, swapped by the `rostrum.changesGrouped` context key). Flat stays the default. `src/extension/changeTree.ts` compacts single-child folder chains, but never folds a folder that holds a file of its own. Paths are shown relative to the containing workspace root, matched on a separator boundary so `/work` cannot swallow `/work-other`; a file edited outside every root keeps its absolute path.
+- **Timeline**: `src/extension/timeline.ts` filters by time window, agent and session. Windows are half-open ranges, so "yesterday" is a bounded day rather than everything before today.
+- **Usage**: `UsageTotals` gained `durationMs` and `toolCalls`, recorded per turn in `sendPrompt` (tool calls from `Session.toolCallCount()` before/after). Each agent expands into its measures plus an average turn time. Metrics an agent never reports are omitted rather than shown as a misleading zero, and totals written by an earlier version are upgraded field by field so a missing field starts at zero instead of turning later sums into NaN.
+- **Diffs**: `src/extension/diffs.ts` serves historical snapshots through a `rostrum-diff:` virtual document scheme. Read-only, never prompts to save, and syntax-highlighted from the filename in the URI even when the original file is gone. Both sides are named in the title; a created file says so rather than showing an empty left pane. `rostrum.compareWithCurrent` diffs the agent's version against what is on disk now.
+
 ## Important current limitations / risks
 
 1. **Nothing here has been validated against a live agent in a live VS Code window.** All of the above is headless. This is the single largest outstanding risk and the reason parity cannot yet be claimed.
@@ -82,9 +91,11 @@ The `parked` agent map is gone; it was replaced, not extended.
 
 ## Remaining parity roadmap
 
-1. **0.15 Transcript UX (remainder)** — Mermaid diagrams and KaTeX math, if the trade-offs above are judged acceptable.
-2. **0.16 Change/workspace UX** — folder/flat changes switch, timeline filters, richer usage metrics (duration/tool calls), robust native diffs.
-3. **0.17–0.18 verification/release** — compatibility matrix across target agents and local/SSH/WSL/container workspaces; live VS Code UI smoke tests; reconnect chaos tests; packaging/signing/publishing materials.
+1. **0.17–0.18 verification/release** — compatibility matrix across target agents and local/SSH/WSL/container workspaces; live VS Code UI smoke tests; reconnect chaos tests; packaging/signing/publishing materials.
+
+### Packaging notes
+
+`npx vsce package --no-dependencies` produces a 2.4 MB vsix, of which 2.4 MB is the two README images in `docs/images/`. They render in the in-editor extension pane, but relative image paths do not render on the Marketplace, so before publishing either host them absolutely or compress them. `HANDOFF.md` and `test/**` are excluded from the package.
 
 ## Files to start with
 
@@ -120,4 +131,6 @@ Run `npm run typecheck` and `npm test` first; both should be green.
 Then either:
 
 - **(preferred) validate 0.11–0.14 against live agents in a live VS Code window.** Everything below is headless. Run `rostrum.detectAgents` on a machine with a real agent installed, start two conversations on one agent, prompt both, switch between them, reload the window mid-turn, and confirm the supervisor reattach, the session switcher and the background-approval notification behave as the headless tests claim; or
-- **start 0.16 (change/workspace UX)** — folder/flat switch in the Changes view, timeline filters, richer usage metrics (duration, tool-call counts), robust native diffs. This is now the largest untouched section.
+- **start 0.17** — build the compatibility matrix. Every roadmap section through 0.16 now has an implementation and headless coverage; what none of it has is a single run against a real agent.
+
+Optional remainders, neither blocking: Mermaid/KaTeX (see the trade-offs above), and time-period *filters* in the Sessions view (the buckets exist, filtering does not).
