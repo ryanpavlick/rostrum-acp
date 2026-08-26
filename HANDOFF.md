@@ -11,7 +11,8 @@ Multicoder’s documented differentiators are a local server that outlives VS Co
 - Package: `rostrum` / Rostrum ACP, currently `0.10.0`.
 - Repository: `https://github.com/ryanpavlick/rostrum` (private), branch `main`.
 - Production build: `npm run build`.
-- Full automated suite: `npm test` — currently green: 20 unit, 7 regression, 9 feature, 16 supervisor, 13 concurrency, 9 provider, 10 sessions view, 7 export, 15 discovery, 19 markdown, 13 highlight, 17 workspace view, and 1 ACP round-trip check.
+- Full automated suite: `npm test` — currently green: 20 unit, 7 regression, 9 feature, 16 supervisor, 9 chaos, 13 concurrency, 9 provider, 10 sessions view, 7 export, 15 discovery, 19 markdown, 13 highlight, 17 workspace view, and 1 ACP round-trip check.
+- Compatibility probe (not part of `npm test`, needs real agents): `node test/compat.mjs` — see `docs/compatibility.md`.
 - Package: `npx vsce package --no-dependencies`.
 - `test/mock-agent.py` is Python because an earlier sandbox suppressed Node processes spawned by another Node process. **That constraint no longer holds in the current environment** (verified: Node spawns Node, detached and piped, fine). The Python mock still works and is kept; new supervisor tests use a Node child (`test/echo-agent.mjs`) directly.
 
@@ -80,6 +81,14 @@ Each part's shaping logic lives outside the tree classes so it can be tested dir
 - **Usage**: `UsageTotals` gained `durationMs` and `toolCalls`, recorded per turn in `sendPrompt` (tool calls from `Session.toolCallCount()` before/after). Each agent expands into its measures plus an average turn time. Metrics an agent never reports are omitted rather than shown as a misleading zero, and totals written by an earlier version are upgraded field by field so a missing field starts at zero instead of turning later sums into NaN.
 - **Diffs**: `src/extension/diffs.ts` serves historical snapshots through a `rostrum-diff:` virtual document scheme. Read-only, never prompts to save, and syntax-highlighted from the filename in the URI even when the original file is gone. Both sides are named in the title; a created file says so rather than showing an empty left pane. `rostrum.compareWithCurrent` diffs the agent's version against what is on disk now.
 
+### 0.17 verification — partly landed
+
+- `test/chaos.mjs` attacks the reconnect promise: twenty detach/reattach cycles mid-stream, two windows racing for one agent, agents side by side, the agent exiting under its client, the supervisor SIGKILLed, and five simultaneous attaches for one key. **It found two real supervisor bugs**, both now fixed:
+  1. Concurrent `writeState()` calls shared one temp filename; the loser's `rename` failed with ENOENT, and because those writes are fire-and-forget it surfaced as an unhandled rejection that killed the whole supervisor and every agent with it. State writes are now serialised, use unique temp names, and cannot reject; the supervisor also no longer exits on an unexpected rejection anywhere.
+  2. When an agent exited, the client socket was left open. A persistent handle resolves `exited` on socket close, so the extension never learned the agent had died and its sessions would have stayed "running" forever. The client is now ended on the child's `close` event, after stdio drains, so final frames still arrive.
+- `test/compat.mjs` is the compatibility-matrix harness: it runs one or more real agents through initialize, `session/new`, an optional live prompt, cancel, and each advertised optional method, and prints a Markdown matrix. Every probe is bounded and independent, so a method that hangs is recorded rather than stopping the run. It records permission requests and **never answers them** — approving a tool call would run real work unasked — and reports a stalled turn as "needs approval" rather than a bare timeout.
+- `docs/compatibility.md` holds the running instructions and the by-hand checklist. **The matrix itself is empty**: it needs a machine with the agents installed and authenticated.
+
 ## Important current limitations / risks
 
 1. **Nothing here has been validated against a live agent in a live VS Code window.** All of the above is headless. This is the single largest outstanding risk and the reason parity cannot yet be claimed.
@@ -91,7 +100,7 @@ Each part's shaping logic lives outside the tree classes so it can be tested dir
 
 ## Remaining parity roadmap
 
-1. **0.17–0.18 verification/release** — compatibility matrix across target agents and local/SSH/WSL/container workspaces; live VS Code UI smoke tests; reconnect chaos tests; packaging/signing/publishing materials.
+1. **0.17–0.18 verification/release** — fill in `docs/compatibility.md` against real agents; work the by-hand checklist in a live VS Code window; validate SSH/WSL/container/Windows; packaging/signing/publishing materials. Reconnect chaos tests are done.
 
 ### Packaging notes
 
@@ -131,6 +140,6 @@ Run `npm run typecheck` and `npm test` first; both should be green.
 Then either:
 
 - **(preferred) validate 0.11–0.14 against live agents in a live VS Code window.** Everything below is headless. Run `rostrum.detectAgents` on a machine with a real agent installed, start two conversations on one agent, prompt both, switch between them, reload the window mid-turn, and confirm the supervisor reattach, the session switcher and the background-approval notification behave as the headless tests claim; or
-- **start 0.17** — build the compatibility matrix. Every roadmap section through 0.16 now has an implementation and headless coverage; what none of it has is a single run against a real agent.
+- **fill in the compatibility matrix.** Every roadmap section through 0.16 now has an implementation and headless coverage, and 0.17's harness is built; what none of it has is a single run against a real agent. Run `rostrum.detectAgents` in VS Code, copy the resulting `rostrum.agents` into an `agents.json`, then `node test/compat.mjs --agents ./agents.json --prompt >> docs/compatibility.md`, and work down the by-hand checklist in that file.
 
 Optional remainders, neither blocking: Mermaid/KaTeX (see the trade-offs above), and time-period *filters* in the Sessions view (the buckets exist, filtering does not).
