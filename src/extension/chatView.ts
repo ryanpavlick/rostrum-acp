@@ -24,6 +24,7 @@ import { Session, displayBlocks, type PermissionMode } from "./session.js";
 import { SessionStore, deriveTitle, type StoredSession } from "./store.js";
 import type { UsageTracker } from "./usage.js";
 import { NO_CAPABILITIES } from "./capabilities.js";
+import { checkCommandExists, nodeProbe, validateAgentDefinition } from "./discovery.js";
 import { mcpServersFromConfig, type McpServerDefinition } from "./mcp.js";
 
 /**
@@ -271,6 +272,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const definition = this.agentDefinitions()[agentKey];
     if (!definition) {
       this.post({ type: "error", message: `No agent configured named "${agentKey}".` });
+      return undefined;
+    }
+
+    // Check the configuration before spawning. A malformed definition
+    // otherwise surfaces as an opaque spawn failure, or worse as a silent hang
+    // while the ACP handshake waits for a process that never answers.
+    const problems = validateAgentDefinition(agentKey, definition);
+    for (const problem of problems) this.output.appendLine(`[${agentKey}] ${problem.message}`);
+    const blocking = problems.filter((problem) => problem.severity === "error");
+    if (blocking.length > 0) {
+      this.post({ type: "error", message: blocking.map((problem) => problem.message).join(" ") });
+      return undefined;
+    }
+
+    const missing = await checkCommandExists(definition, nodeProbe());
+    if (missing) {
+      this.post({ type: "error", message: `Cannot start ${agentKey}: ${missing.message}` });
       return undefined;
     }
 

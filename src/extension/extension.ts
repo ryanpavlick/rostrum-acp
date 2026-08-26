@@ -2,6 +2,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { managerLogs, managerStateFile, managerStatus, managerStop } from "./agentProcess.js";
 import { ChatViewProvider } from "./chatView.js";
+import { detectAgents, nodeProbe, type DetectedAgent } from "./discovery.js";
 import { formatForPath, serializeTranscript } from "./export.js";
 import { ChangeHistory } from "./history.js";
 import { migrateLegacySettings } from "./migrate.js";
@@ -160,6 +161,8 @@ export function activate(context: vscode.ExtensionContext): void {
       );
     }),
 
+    vscode.commands.registerCommand("rostrum.detectAgents", () => detectAndAddAgents(chat)),
+
     vscode.commands.registerCommand("rostrum.pickAgent", async () => {
       const configured = Object.keys(
         vscode.workspace.getConfiguration("rostrum").get<Record<string, unknown>>("agents") ?? {},
@@ -167,9 +170,13 @@ export function activate(context: vscode.ExtensionContext): void {
       if (configured.length === 0) {
         const choice = await vscode.window.showWarningMessage(
           "No agents configured yet.",
+          "Detect Installed",
           "Install from Registry",
         );
-        if (choice) await vscode.commands.executeCommand("rostrum.installAgent");
+        if (choice === "Detect Installed") await detectAndAddAgents(chat);
+        else if (choice === "Install from Registry") {
+          await vscode.commands.executeCommand("rostrum.installAgent");
+        }
         return;
       }
       const picked = await vscode.window.showQuickPick(configured, {
@@ -361,6 +368,61 @@ function duration(milliseconds: number): string {
   if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
   const hours = Math.floor(minutes / 60);
   return `${hours}h ${minutes % 60}m`;
+}
+
+/**
+ * Find ACP agents already installed on this machine and offer to configure
+ * them.
+ *
+ * Cheaper for the user than the registry path: nothing is downloaded, and an
+ * agent they already use is one command away instead of a hand-written
+ * settings block.
+ */
+async function detectAndAddAgents(chat: ChatViewProvider): Promise<void> {
+  const found = await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Window, title: "Looking for installed ACP agents…" },
+    () => detectAgents(nodeProbe()),
+  );
+
+  if (found.length === 0) {
+    const choice = await vscode.window.showInformationMessage(
+      "No known ACP agents were found on your PATH.",
+      "Install from Registry",
+    );
+    if (choice) await vscode.commands.executeCommand("rostrum.installAgent");
+    return;
+  }
+
+  const config = vscode.workspace.getConfiguration("rostrum");
+  const existing = config.get<Record<string, unknown>>("agents") ?? {};
+
+  const picked = await vscode.window.showQuickPick(
+    found.map((entry) => ({
+      label: entry.profile.name,
+      description: entry.resolved,
+      detail: entry.profile.notes,
+      picked: !(entry.profile.name in existing),
+      entry,
+    })),
+    {
+      canPickMany: true,
+      placeHolder: `Found ${found.length} installed agent${found.length === 1 ? "" : "s"} — choose which to add`,
+    },
+  );
+  if (!picked?.length) return;
+
+  const additions: Record<string, unknown> = { ...existing };
+  for (const { entry } of picked as { entry: DetectedAgent }[]) {
+    additions[entry.profile.name] = entry.definition;
+  }
+  await config.update("agents", additions, vscode.ConfigurationTarget.Global);
+
+  const names = (picked as { entry: DetectedAgent }[]).map(({ entry }) => entry.profile.name);
+  const start = await vscode.window.showInformationMessage(
+    `Added ${names.join(", ")}.`,
+    "Start it",
+  );
+  if (start) await chat.startAgent(names[0]);
 }
 
 export function deactivate(): void {

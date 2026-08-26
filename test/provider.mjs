@@ -130,7 +130,10 @@ function fakeView(posted) {
 
 async function build() {
   stub.reset();
-  stub.config = { agents: { scripted: { command: "scripted" } }, permissionMode: "ask" };
+  // A real executable: the provider validates that an agent's command exists
+  // before launching it, and the scripted connection replaces the process, not
+  // that check.
+  stub.config = { agents: { scripted: { command: process.execPath } }, permissionMode: "ask" };
 
   const root = await fs.mkdtemp(path.join(tmp, "run-"));
   const store = new SessionStore(path.join(root, "sessions"));
@@ -285,7 +288,10 @@ const textOf = (turns) =>
 // --- switching agents keeps each conversation intact -------------------------
 {
   const { provider, agent, posted } = await build();
-  stub.config.agents = { scripted: { command: "scripted" }, other: { command: "scripted" } };
+  stub.config.agents = {
+    scripted: { command: process.execPath },
+    other: { command: process.execPath },
+  };
 
   await provider.startAgent("scripted");
   await agent.say("session-1", "hello from scripted");
@@ -307,6 +313,24 @@ const textOf = (turns) =>
     "revisiting an agent does not pile up empty conversations",
   );
   ok("agent switching is idempotent");
+}
+
+// --- a misconfigured agent fails with an explanation ------------------------
+{
+  const { provider, posted } = await build();
+  const errors = () => posted.filter((m) => m.type === "error").map((m) => m.message);
+
+  stub.config.agents = { broken: { command: "definitely-not-installed-anywhere" } };
+  await provider.startAgent("broken");
+  assert.match(errors().pop(), /not found on PATH/);
+  assert.equal(provider.liveSessions().length, 0, "no half-built session is left behind");
+
+  posted.length = 0;
+  stub.config.agents = { malformed: { command: process.execPath, args: "--acp" } };
+  await provider.startAgent("malformed");
+  assert.match(errors().pop(), /must be an array/);
+  assert.equal(provider.liveSessions().length, 0);
+  ok("a misconfigured agent is refused with a specific reason, not left to hang");
 }
 
 await fs.rm(tmp, { recursive: true, force: true });
