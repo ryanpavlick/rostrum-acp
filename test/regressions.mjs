@@ -110,4 +110,55 @@ await assert.rejects(
 );
 ok("workspace symlink escapes refused for reads and writes");
 
+// --- a late tool update must not corrupt a later turn ------------------------
+{
+  const deltas = [];
+  const late = new Session(
+    {
+      onTurn() {},
+      onTurnDelta: (turnId, index, block) => deltas.push({ turnId, index, block }),
+      onPending() {},
+      onModes() {},
+      onError() {},
+    },
+    "/workspace",
+    "yolo",
+  );
+
+  late.addUserTurn("first");
+  await late.sessionUpdate({ sessionId: "x", update: {
+    sessionUpdate: "tool_call", toolCallId: "t1", title: "Read file", kind: "read", status: "pending",
+  }});
+
+  const firstAssistant = late.getTurns()[1];
+  assert.equal(firstAssistant.blocks[0].kind, "tool");
+
+  // A new prompt starts a new assistant turn. ACP explicitly allows the agent
+  // to keep sending updates for tool calls from the previous one.
+  late.addUserTurn("second");
+  await late.sessionUpdate({ sessionId: "x", update: {
+    sessionUpdate: "agent_message_chunk", content: { type: "text", text: "working" },
+  }});
+  const secondAssistant = late.getTurns()[3];
+  assert.equal(secondAssistant.blocks[0].kind, "text");
+
+  deltas.length = 0;
+  await late.sessionUpdate({ sessionId: "x", update: {
+    sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed",
+  }});
+
+  assert.equal(
+    secondAssistant.blocks[0].kind,
+    "text",
+    "a late tool update must not overwrite a block in the newer turn",
+  );
+  assert.equal(firstAssistant.blocks[0].call.status, "completed", "the original card is updated");
+
+  const misdirected = deltas.filter(
+    (delta) => delta.turnId === secondAssistant.id && delta.block.kind === "tool",
+  );
+  assert.deepEqual(misdirected, [], "the update is addressed to the turn that owns the tool call");
+  ok("a tool update arriving after a new turn updates its own turn, not the new one");
+}
+
 console.log(`\nPASS: ${passed} regression checks`);

@@ -121,8 +121,14 @@ export class Session implements Client {
   private turns: Turn[] = [];
   private assistantTurn: Turn | null = null;
   private readonly toolCalls = new Map<string, ToolCall>();
-  /** Where each tool call sits in its turn, so updates target it directly. */
-  private readonly toolBlockIndex = new Map<string, number>();
+  /**
+   * Where each tool call's card sits: which turn, and where within it.
+   *
+   * The turn matters as much as the index. ACP lets an agent keep updating a
+   * tool call after the next turn has begun, and addressing that update at
+   * whatever turn is current would overwrite an unrelated block in it.
+   */
+  private readonly toolBlockIndex = new Map<string, { turnId: string; index: number }>();
   /** Content notifications can be repeated; render each immutable item once. */
   private readonly renderedToolContent = new Set<string>();
   private readonly pendingResolvers = new Map<string, Resolver>();
@@ -524,6 +530,13 @@ export class Session implements Client {
     }
   }
 
+  /** The turn a tool call's card lives in, if it is still in the transcript. */
+  private turnOf(toolCallId: string): Turn | undefined {
+    const location = this.toolBlockIndex.get(toolCallId);
+    if (!location) return undefined;
+    return this.turns.find((turn) => turn.id === location.turnId);
+  }
+
   private applyToolCall(update: {
     toolCallId: string;
     title?: string | null;
@@ -534,7 +547,9 @@ export class Session implements Client {
     rawInput?: unknown;
     _meta?: { [key: string]: unknown } | null;
   }): void {
-    const turn = this.ensureAssistantTurn();
+    // An update for a known tool call belongs to the turn that already holds
+    // its card, even if a newer turn has since started.
+    const turn = this.turnOf(update.toolCallId) ?? this.ensureAssistantTurn();
     let call = this.toolCalls.get(update.toolCallId);
 
     if (!call) {
@@ -551,7 +566,10 @@ export class Session implements Client {
       }
       this.toolCalls.set(update.toolCallId, call);
       turn.blocks.push({ kind: "tool", call });
-      this.toolBlockIndex.set(update.toolCallId, turn.blocks.length - 1);
+      this.toolBlockIndex.set(update.toolCallId, {
+        turnId: turn.id,
+        index: turn.blocks.length - 1,
+      });
     }
 
     if (update.title) call.title = update.title;
@@ -603,9 +621,9 @@ export class Session implements Client {
       }
     }
 
-    const index = this.toolBlockIndex.get(update.toolCallId);
-    if (index !== undefined) {
-      this.events.onTurnDelta(turn.id, index, { kind: "tool", call });
+    const location = this.toolBlockIndex.get(update.toolCallId);
+    if (location) {
+      this.events.onTurnDelta(location.turnId, location.index, { kind: "tool", call });
     }
   }
 }
