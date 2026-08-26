@@ -38,8 +38,16 @@ export class ManagedSession {
   mayDrainQueue = false;
   queue: string[] = [];
   attachments: vscode.Uri[] = [];
-  pending: PendingRequest | null = null;
-  elicitResolver: ((answers?: Record<string, string>) => void) | undefined;
+  /**
+   * Every request waiting on the user, oldest first.
+   *
+   * An agent running tools concurrently can raise several at once. Holding
+   * only the newest left the earlier ones unanswerable, which stalls the
+   * agent on a promise nothing can ever resolve.
+   */
+  pending: PendingRequest[] = [];
+  /** Elicitation resolvers by request id, for the same reason. */
+  readonly elicitResolvers = new Map<string, (answers?: Record<string, string>) => void>();
   plan: PlanEntry[] = [];
   commands: SlashCommand[] = [];
   configOptions: ConfigOption[] = [];
@@ -58,6 +66,18 @@ export class ManagedSession {
     readonly session: Session,
     private readonly onChanged: (session: ManagedSession) => void,
   ) {}
+
+  /** The request the user is being shown: the oldest still outstanding. */
+  get currentRequest(): PendingRequest | null {
+    return this.pending[0] ?? null;
+  }
+
+  /** Drop one answered request, keeping the rest. */
+  resolveRequest(requestId: string): void {
+    this.pending = this.pending.filter((request) => request.requestId !== requestId);
+    this.elicitResolvers.delete(requestId);
+    this.refreshLifecycle();
+  }
 
   get agentKey(): string {
     return this.connection.agentKey;
@@ -88,7 +108,7 @@ export class ManagedSession {
   refreshLifecycle(): void {
     const next: SessionLifecycle = this.connection.disposed
       ? "disconnected"
-      : this.pending
+      : this.pending.length > 0
         ? "awaiting-approval"
         : this.busy || this.inFlightPrompts > 0
           ? "running"
@@ -127,8 +147,8 @@ export class ManagedSession {
     this.plan = [];
     this.usage = null;
     this.configOptions = [];
-    this.pending = null;
-    this.elicitResolver = undefined;
+    this.pending = [];
+    this.elicitResolvers.clear();
     this.mayDrainQueue = false;
     this.lastError = undefined;
     this.readOnly = false;

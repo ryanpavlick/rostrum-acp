@@ -158,7 +158,8 @@ export type HostMessage =
    * erase blocks the update does not mention.
    */
   | { type: "turnDelta"; turnId: string; index: number; block: Block }
-  | { type: "pending"; request: PendingRequest | null }
+  /** The oldest outstanding request, with how many are waiting in total. */
+  | { type: "pending"; request: PendingRequest | null; pendingCount?: number }
   | { type: "busy"; busy: boolean }
   | { type: "usage"; usage: UsageSummary }
   | { type: "revealTurn"; turnId: string }
@@ -176,6 +177,8 @@ export interface ViewState {
   turns: Turn[];
   busy: boolean;
   pending: PendingRequest | null;
+  /** How many requests are waiting on the user, including the one shown. */
+  pendingCount: number;
   modes: ModeOption[];
   currentMode: string | null;
   sessions: SessionMeta[];

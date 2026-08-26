@@ -24,6 +24,7 @@ const state: ViewState = {
   turns: [],
   busy: false,
   pending: null,
+  pendingCount: 0,
   modes: [],
   currentMode: null,
   sessions: [],
@@ -538,7 +539,7 @@ function renderAll(): void {
     state.promptCapabilities.image || state.promptCapabilities.audio || state.promptCapabilities.embeddedContext ? "" : "none";
   renderUsage();
   applyBusy();
-  renderPending(state.pending);
+  renderPending(state.pending, state.pendingCount);
 }
 
 const LIFECYCLE_TEXT: Record<SessionLifecycle, string> = {
@@ -846,10 +847,24 @@ function renderPermission(request: PendingRequest): HTMLElement {
   return card;
 }
 
-function renderPending(request: PendingRequest | null): void {
+function renderPending(request: PendingRequest | null, pendingCount = 0): void {
   state.pending = request;
+  state.pendingCount = pendingCount;
   pendingHost.replaceChildren();
   if (!request) return;
+
+  // An agent running tools concurrently can be blocked on several asks at
+  // once. Say so, or the queue behind this one is invisible.
+  const waiting = Math.max(0, pendingCount - 1);
+  if (waiting > 0) {
+    const note = el(
+      "div",
+      "pending-more",
+      `${waiting} more request${waiting === 1 ? "" : "s"} waiting`,
+    );
+    note.setAttribute("role", "status");
+    pendingHost.append(note);
+  }
 
   pendingHost.append(
     request.questions?.length
@@ -886,7 +901,7 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
       break;
     }
     case "pending":
-      renderPending(message.request);
+      renderPending(message.request, message.pendingCount ?? (message.request ? 1 : 0));
       break;
     case "busy":
       state.busy = message.busy;

@@ -33,7 +33,10 @@ export type PermissionMode = "ask" | "acceptEdits" | "yolo";
 export interface SessionEvents {
   onTurn(turn: Turn): void;
   onTurnDelta(turnId: string, index: number, block: Block): void;
+  /** A new request needs the user. `null` means every request was cancelled. */
   onPending(request: PendingRequest | null): void;
+  /** One specific request was answered, leaving any others still outstanding. */
+  onPendingResolved?(requestId: string): void;
   onModes(modes: ModeOption[], current: string | null): void;
   onError(message: string): void;
   onCommands?(commands: SlashCommand[]): void;
@@ -267,7 +270,9 @@ export class Session implements Client {
       outcome: { outcome: "selected", optionId },
       ...extra,
     } as RequestPermissionResponse);
-    this.events.onPending(null);
+    // Only this request is settled. Others may still be outstanding, and
+    // clearing them all here is what previously made them unanswerable.
+    this.events.onPendingResolved?.(requestId);
   }
 
   /** Resolve every outstanding prompt as cancelled (turn aborted, agent died). */

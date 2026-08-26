@@ -269,7 +269,7 @@ const textOf = (turns) =>
   await provider.loadSessionById("session-1");
   await until(() => provider.active()?.sessionId === "session-1", "the session to come on screen");
 
-  const request = provider.active().pending;
+  const request = provider.active().currentRequest;
   assert.equal(request.title, "Write src/index.ts", "the ask survived being off screen");
   await provider.handleMessage({ type: "respond", requestId: request.requestId, optionId: "yes" });
   const outcome = await permission;
@@ -313,6 +313,56 @@ const textOf = (turns) =>
     "revisiting an agent does not pile up empty conversations",
   );
   ok("agent switching is idempotent");
+}
+
+// --- concurrent approvals are all reachable ---------------------------------
+{
+  const { provider, agent, posted } = await build();
+  await provider.startAgent("scripted");
+  const running = provider.handleMessage({ type: "prompt", text: "edit several files" });
+  await tick();
+
+  // An agent running tools concurrently raises several asks at once. Holding
+  // only the newest left the earlier ones unanswerable, stalling the agent on
+  // a promise nothing could resolve.
+  const settled = [];
+  const first = agent.ask("session-1", "Write a.ts").then((v) => (settled.push("a"), v));
+  await tick();
+  const second = agent.ask("session-1", "Write b.ts").then((v) => (settled.push("b"), v));
+  await tick();
+  const third = agent.ask("session-1", "Write c.ts").then((v) => (settled.push("c"), v));
+  await tick();
+
+  assert.equal(provider.active().pending.length, 3, "all three asks are held");
+  assert.equal(
+    provider.active().currentRequest.title,
+    "Write a.ts",
+    "the oldest ask is the one shown, so nothing waits behind a newer one forever",
+  );
+
+  const shown = posted.filter((m) => m.type === "pending").pop();
+  assert.equal(shown.pendingCount, 3, "the view is told how many are waiting");
+
+  // Answer them oldest-first; each must reach the call that raised it.
+  for (const title of ["Write a.ts", "Write b.ts", "Write c.ts"]) {
+    const request = provider.active().currentRequest;
+    assert.equal(request.title, title);
+    await provider.handleMessage({ type: "respond", requestId: request.requestId, optionId: "yes" });
+    await tick();
+  }
+
+  assert.deepEqual(await Promise.all([first, second, third]), [
+    { outcome: { outcome: "selected", optionId: "yes" } },
+    { outcome: { outcome: "selected", optionId: "yes" } },
+    { outcome: { outcome: "selected", optionId: "yes" } },
+  ]);
+  assert.deepEqual(settled, ["a", "b", "c"]);
+  assert.equal(provider.active().pending.length, 0);
+  assert.equal(provider.active().lifecycle, "running", "back to merely working");
+  ok("several concurrent approvals are all reachable and each reaches its own caller");
+
+  agent.finish("session-1");
+  await running;
 }
 
 // --- restarting an agent always leaves a usable session ---------------------

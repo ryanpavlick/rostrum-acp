@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { SessionMeta, Turn } from "../shared/protocol.js";
@@ -25,8 +26,17 @@ interface CatalogEntry extends SessionMeta {
 export class SessionStore {
   constructor(private readonly root: string) {}
 
+  /**
+   * Name a transcript file by the hash of its session id, never by the id.
+   *
+   * Session ids come from the agent, so treating one as a path component lets
+   * a malicious or faulty agent write and delete outside this directory —
+   * `../../evil` resolves straight out of it. Hashing removes the class of
+   * bug rather than blacklisting the spellings of it, and a 64-character hex
+   * name can never collide with `catalog.json` either.
+   */
   private file(sessionId: string): string {
-    return path.join(this.root, `${sessionId}.json`);
+    return path.join(this.root, `${createHash("sha256").update(sessionId).digest("hex")}.json`);
   }
 
   private catalogFile(): string {
@@ -36,22 +46,47 @@ export class SessionStore {
   async save(session: StoredSession): Promise<void> {
     await fs.mkdir(this.root, { recursive: true });
     // Write-then-rename so a crash mid-write cannot truncate the transcript.
+    // The temp name is unique so two saves of one session cannot race.
     const target = this.file(session.sessionId);
-    const temp = `${target}.tmp`;
-    await fs.writeFile(temp, JSON.stringify(session), "utf8");
-    await fs.rename(temp, target);
-  }
-
-  async load(sessionId: string): Promise<StoredSession | undefined> {
+    const temp = `${target}.${process.pid}.${(this.serial += 1)}.tmp`;
     try {
-      const raw = await fs.readFile(this.file(sessionId), "utf8");
-      return JSON.parse(raw) as StoredSession;
-    } catch {
-      return undefined;
+      await fs.writeFile(temp, JSON.stringify(session), "utf8");
+      await fs.rename(temp, target);
+    } catch (error) {
+      await fs.rm(temp, { force: true }).catch(() => undefined);
+      throw error;
     }
   }
 
-  async list(): Promise<SessionMeta[]> {
+  private serial = 0;
+
+  async load(sessionId: string): Promise<StoredSession | undefined> {
+    const found = await this.locate(sessionId);
+    return found?.session;
+  }
+
+  /**
+   * Find a transcript by session id.
+   *
+   * Falls back to scanning when the hashed name is absent, so transcripts
+   * written by an earlier version — which named files by the raw id — are
+   * still readable and deletable rather than being orphaned.
+   */
+  private async locate(
+    sessionId: string,
+  ): Promise<{ file: string; session: StoredSession } | undefined> {
+    const hashed = this.file(sessionId);
+    const direct = await readSession(hashed);
+    if (direct) return { file: hashed, session: direct };
+
+    for (const { file, session } of await this.readAll()) {
+      if (session.sessionId === sessionId) return { file, session };
+    }
+    return undefined;
+  }
+
+  /** Every stored transcript, whatever its file is called. */
+  private async readAll(): Promise<{ file: string; session: StoredSession }[]> {
     let entries: string[];
     try {
       entries = await fs.readdir(this.root);
@@ -59,28 +94,34 @@ export class SessionStore {
       return [];
     }
 
-    const local = await Promise.all(
+    const found = await Promise.all(
       entries
         .filter((name) => name.endsWith(".json") && name !== "catalog.json")
-        .map(async (name): Promise<SessionMeta[]> => {
-          const session = await this.load(name.replace(/\.json$/, ""));
-          if (!session) return [];
-          return [
-            {
-              sessionId: session.sessionId,
-              agentKey: session.agentKey,
-              title: session.title,
-              updatedAt: session.updatedAt,
-            },
-          ];
+        .map(async (name) => {
+          const file = path.join(this.root, name);
+          const session = await readSession(file);
+          return session ? [{ file, session }] : [];
         }),
     );
+    return found.flat();
+  }
+
+  async list(): Promise<SessionMeta[]> {
+    // The id comes from the file's contents, never from its name: the name is
+    // a hash, and a file written by an older version cannot be trusted to be
+    // named after a well-formed id.
+    const local = (await this.readAll()).map(({ session }) => ({
+      sessionId: session.sessionId,
+      agentKey: session.agentKey,
+      title: session.title,
+      updatedAt: session.updatedAt,
+    }));
 
     // A local transcript is richer than a catalog-only entry for the same id,
     // so it wins while still retaining sessions discovered from the agent.
     const merged = new Map<string, SessionMeta>();
     for (const entry of await this.readCatalog()) merged.set(entry.sessionId, entry);
-    for (const entry of local.flat()) merged.set(entry.sessionId, entry);
+    for (const entry of local) merged.set(entry.sessionId, entry);
     return [...merged.values()].sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
@@ -117,7 +158,8 @@ export class SessionStore {
   }
 
   async delete(sessionId: string): Promise<void> {
-    await fs.rm(this.file(sessionId), { force: true });
+    const found = await this.locate(sessionId);
+    if (found) await fs.rm(found.file, { force: true });
     const retained = (await this.readCatalog()).filter((entry) => entry.sessionId !== sessionId);
     try {
       const target = this.catalogFile();
@@ -137,6 +179,18 @@ export class SessionStore {
     } catch {
       return [];
     }
+  }
+}
+
+async function readSession(file: string): Promise<StoredSession | undefined> {
+  try {
+    const value = JSON.parse(await fs.readFile(file, "utf8")) as Partial<StoredSession>;
+    // A file that does not carry its own id is unusable: the name no longer
+    // tells us what it is.
+    if (typeof value?.sessionId !== "string" || !Array.isArray(value.turns)) return undefined;
+    return value as StoredSession;
+  } catch {
+    return undefined;
   }
 }
 

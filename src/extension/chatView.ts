@@ -368,7 +368,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       connection.exitCode = code;
       for (const controller of connection.sessions) {
         controller.session.cancelPending();
-        controller.pending = null;
+        controller.pending = [];
         controller.busy = false;
         controller.inFlightPrompts = 0;
         controller.setLifecycle("disconnected");
@@ -469,10 +469,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           this.publishTurns();
         },
         onPending: (request) => {
-          controller.pending = request;
+          // A null request means every outstanding ask was cancelled.
+          if (!request) controller.pending = [];
+          else controller.pending.push(request);
           controller.refreshLifecycle();
-          if (live()) this.post({ type: "pending", request });
+          if (live()) this.postPending(controller);
           else if (request) this.notifyBackgroundRequest(controller, request);
+        },
+        onPendingResolved: (requestId) => {
+          controller.resolveRequest(requestId);
+          if (live()) this.postPending(controller);
         },
         onModes: (modes, current) => {
           if (live()) void this.pushState(modes, current);
@@ -495,10 +501,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           if (live()) this.post({ type: "configOptions", options: controller.configOptions });
         },
         onElicit: (request, resolve) => {
-          controller.elicitResolver = resolve;
-          controller.pending = request;
+          controller.elicitResolvers.set(request.requestId, resolve);
+          controller.pending.push(request);
           controller.refreshLifecycle();
-          if (live()) this.post({ type: "pending", request });
+          if (live()) this.postPending(controller);
           else this.notifyBackgroundRequest(controller, request);
         },
         onFileEdited: (edit) =>
@@ -662,21 +668,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case "cancel":
         if (controller) await this.cancelTurn(controller);
         break;
-      case "respond":
+      case "respond": {
         if (!controller) break;
-        if (controller.elicitResolver) {
+        const elicit = controller.elicitResolvers.get(message.requestId);
+        if (elicit) {
           // An elicitation, not a tool permission: resolve it directly.
-          controller.elicitResolver(
-            message.optionId.startsWith("accept") ? (message.answers ?? {}) : undefined,
-          );
-          controller.elicitResolver = undefined;
+          elicit(message.optionId.startsWith("accept") ? (message.answers ?? {}) : undefined);
+          controller.resolveRequest(message.requestId);
         } else {
+          // `respond` fires onPendingResolved, which dequeues this one and
+          // leaves any others still waiting.
           controller.session.respond(message.requestId, message.optionId, message.answers);
         }
-        controller.pending = null;
-        controller.refreshLifecycle();
-        this.post({ type: "pending", request: null });
+        this.postPending(controller);
         break;
+      }
       case "selectMode":
         if (controller) await this.setMode(controller, message.mode);
         break;
@@ -937,6 +943,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.postAttachments(controller);
   }
 
+  /**
+   * Show the oldest outstanding request, and say how many are behind it.
+   *
+   * The agent may be blocked on several at once; the count is what tells the
+   * user more work is waiting rather than the panel having gone quiet.
+   */
+  private postPending(controller: ManagedSession): void {
+    if (!this.isActive(controller)) return;
+    this.post({
+      type: "pending",
+      request: controller.currentRequest,
+      pendingCount: controller.pending.length,
+    });
+  }
+
   private postAttachments(controller: ManagedSession): void {
     if (!this.isActive(controller)) return;
     this.post({
@@ -950,7 +971,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (!sessionId) return;
     controller.abort?.abort();
     controller.session.cancelPending();
-    controller.pending = null;
+    controller.pending = [];
     try {
       await controller.connection.agent.cancel({ sessionId });
     } catch {
@@ -1191,7 +1212,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       sessionId: controller?.sessionId ?? null,
       turns: controller?.session.getTurns() ?? [],
       busy: controller?.busy ?? false,
-      pending: controller?.pending ?? null,
+      pending: controller?.currentRequest ?? null,
+      pendingCount: controller?.pending.length ?? 0,
       modes: modes ?? controller?.session.modes ?? [],
       currentMode: currentMode ?? controller?.session.currentMode ?? null,
       sessions: await this.store.list(),

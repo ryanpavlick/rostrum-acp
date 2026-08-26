@@ -389,3 +389,9 @@ h4.md-heading, h5.md-heading, h6.md-heading { font-size: 1em; }
   margin-bottom: 2px;
 }
 .tool-code { font-size: 0.9em; }
+
+.pending-more {
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+  padding: 2px 8px 4px;
+}
