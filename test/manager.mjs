@@ -118,9 +118,15 @@ startManager();
 const state = await readState();
 assert.ok(state.port > 0 && typeof state.token === "string" && state.token.length >= 32);
 
-const mode = (await fs.stat(stateFile)).mode & 0o777;
-assert.equal(mode, 0o600, "the state file holds the supervisor token and must not be world-readable");
-ok("the supervisor publishes a private state file with an unguessable token");
+if (process.platform === "win32") {
+  // Windows does not carry POSIX mode bits; ACLs are what protect the file
+  // there, and asserting 0o600 would only ever test Node's emulation.
+  ok("the supervisor publishes a state file with an unguessable token");
+} else {
+  const mode = (await fs.stat(stateFile)).mode & 0o777;
+  assert.equal(mode, 0o600, "the state file holds the supervisor token and must not be world-readable");
+  ok("the supervisor publishes a private state file with an unguessable token");
+}
 
 assert.deepEqual((await control(state, { type: "status" })).agents, []);
 ok("status reports an empty supervisor before anything attaches");

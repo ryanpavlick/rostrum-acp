@@ -2,7 +2,7 @@
   "name": "rostrum",
   "displayName": "Rostrum ACP",
   "description": "One UI for every Agent Client Protocol coding agent. Run Claude, Codex, Qwen, OpenCode, Hermes and more inside VS Code, with full visibility into every change, tool call, and reasoning step.",
-  "version": "0.10.0",
+  "version": "0.17.0",
   "publisher": "rostrum-ai",
   "license": "Apache-2.0",
   "type": "module",
@@ -359,9 +359,10 @@
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "build:test": "rm -rf out/test && esbuild src/extension/session.ts src/extension/agentProcess.ts src/extension/questions.ts src/extension/registry.ts src/extension/usage.ts src/extension/history.ts src/extension/capabilities.ts src/extension/terminals.ts src/extension/store.ts src/extension/mcp.ts src/extension/router.ts src/extension/managedSession.ts src/extension/agentConnection.ts src/extension/chatView.ts src/extension/trees.ts src/extension/export.ts src/extension/discovery.ts src/extension/changeTree.ts src/extension/timeline.ts --bundle --platform=node --target=node20 --format=esm --outdir=out/test --outbase=src/extension --external:vscode --alias:vscode=./test/stubs/vscode.ts && esbuild src/manager.ts --bundle --platform=node --target=node20 --format=esm --outdir=out/test --outbase=src && esbuild src/webview/markdown.ts src/webview/highlight.ts --bundle --platform=neutral --target=es2022 --format=esm --outdir=out/test --outbase=src/webview",
+    "build:test": "npm run clean:test -s && esbuild src/extension/session.ts src/extension/agentProcess.ts src/extension/questions.ts src/extension/registry.ts src/extension/usage.ts src/extension/history.ts src/extension/capabilities.ts src/extension/terminals.ts src/extension/store.ts src/extension/mcp.ts src/extension/router.ts src/extension/managedSession.ts src/extension/agentConnection.ts src/extension/chatView.ts src/extension/trees.ts src/extension/export.ts src/extension/discovery.ts src/extension/changeTree.ts src/extension/timeline.ts --bundle --platform=node --target=node20 --format=esm --outdir=out/test --outbase=src/extension --external:vscode --alias:vscode=./test/stubs/vscode.ts && esbuild src/manager.ts --bundle --platform=node --target=node20 --format=esm --outdir=out/test --outbase=src && esbuild src/webview/markdown.ts src/webview/highlight.ts --bundle --platform=neutral --target=es2022 --format=esm --outdir=out/test --outbase=src/webview",
     "test": "npm run build:test -s && node test/units.mjs && node test/regressions.mjs && node test/features.mjs && node test/manager.mjs && node test/chaos.mjs && node test/concurrency.mjs && node test/provider.mjs && node test/trees.mjs && node test/export.mjs && node test/discovery.mjs && node test/markdown.mjs && node test/highlight.mjs && node test/workspace.mjs && node test/roundtrip.mjs",
-    "test:live": "npm run build:test -s && node test/smoke-qwen.mjs"
+    "test:live": "npm run build:test -s && node test/smoke-qwen.mjs",
+    "clean:test": "node -e \"require('node:fs').rmSync('out/test',{recursive:true,force:true})\""
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

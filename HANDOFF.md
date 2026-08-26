@@ -8,7 +8,7 @@ Multicoder’s documented differentiators are a local server that outlives VS Co
 
 ## Current baseline
 
-- Package: `rostrum` / Rostrum ACP, currently `0.10.0`.
+- Package: `rostrum` / Rostrum ACP, currently `0.17.0`. CHANGELOG records 0.11–0.17 individually.
 - Repository: `https://github.com/ryanpavlick/rostrum` (private), branch `main`.
 - Production build: `npm run build`.
 - Full automated suite: `npm test` — currently green: 20 unit, 7 regression, 9 feature, 16 supervisor, 9 chaos, 13 concurrency, 9 provider, 10 sessions view, 7 export, 15 discovery, 19 markdown, 13 highlight, 17 workspace view, and 1 ACP round-trip check.
@@ -101,6 +101,12 @@ Each part's shaping logic lives outside the tree classes so it can be tested dir
 ## Remaining parity roadmap
 
 1. **0.17–0.18 verification/release** — fill in `docs/compatibility.md` against real agents; work the by-hand checklist in a live VS Code window; validate SSH/WSL/container/Windows; packaging/signing/publishing materials. Reconnect chaos tests are done.
+
+### 0.18 release materials — partly landed
+
+- Version bumped to 0.17.0 with a CHANGELOG entry per roadmap milestone.
+- `.github/workflows/ci.yml` runs typecheck, tests, build and packaging on Linux, macOS and Windows against Node 20 and 22. The supervisor is loopback TCP and spawns detached processes, so proving it on every claimed platform matters more here than usual. Two portability fixes were needed for this: the test clean is now a Node call rather than `rm -rf`, and the state-file permission assertion is skipped on Windows, which has no POSIX mode bits.
+- Still to do: a 128×128 PNG `icon` and `galleryBanner` for the Marketplace listing (`resources/sidebar.svg` is the activity-bar icon, not a Marketplace icon), publisher verification, and signing.
 
 ### Packaging notes
 
