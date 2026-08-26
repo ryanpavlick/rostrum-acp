@@ -11,7 +11,7 @@ Multicoder’s documented differentiators are a local server that outlives VS Co
 - Package: `rostrum` / Rostrum ACP, currently `0.10.0`.
 - Repository: `https://github.com/ryanpavlick/rostrum` (private), branch `main`.
 - Production build: `npm run build`.
-- Full automated suite: `npm test` — currently green: 20 unit, 7 regression, 9 feature, 16 supervisor, 13 concurrency, 9 provider, 10 sessions view, 7 export, 15 discovery, and 1 ACP round-trip check.
+- Full automated suite: `npm test` — currently green: 20 unit, 7 regression, 9 feature, 16 supervisor, 13 concurrency, 9 provider, 10 sessions view, 7 export, 15 discovery, 19 markdown, 13 highlight, and 1 ACP round-trip check.
 - Package: `npx vsce package --no-dependencies`.
 - `test/mock-agent.py` is Python because an earlier sandbox suppressed Node processes spawned by another Node process. **That constraint no longer holds in the current environment** (verified: Node spawns Node, detached and piped, fine). The Python mock still works and is kept; new supervisor tests use a Node child (`test/echo-agent.mjs`) directly.
 
@@ -57,6 +57,20 @@ The `parked` agent map is gone; it was replaced, not extended.
 - Configuration is validated before launch, with actionable messages (non-array `args`, non-string `env`, missing `command`, a whole shell command line pasted into `command`). A command that is not on PATH is refused with that reason rather than hanging the handshake.
 - Still to do here: per-agent auth/settings UX.
 
+### 0.15 transcript UX — partly landed
+
+- `src/webview/markdown.ts` parses a Markdown subset chosen for what agents emit (fenced code, lists, headings, tables, quotes, emphasis, links) and returns a **tree, never markup text**. The renderer in `main.ts` builds every node with `createElement` and fills it with `textContent`. A test asserts no webview source mentions `innerHTML`/`outerHTML`/`insertAdjacentHTML`/`document.write` outside a comment, so this cannot quietly regress.
+- Link targets are restricted to `http`, `https`, `mailto` and relative URLs. `javascript:`, `data:`, `vbscript:`, `file:` and scheme-relative `//host` are refused; control characters are stripped before the scheme check. A refused link degrades to literal visible text.
+- `src/webview/highlight.ts` colours code blocks for about twenty languages with no dependency, returning tokens rather than markup. It is lossless by construction and tested to be — concatenating tokens returns the input exactly, including for unterminated strings and comments — so code a user copies cannot be corrupted. Colours come from the editor's own token colour variables.
+- Accessibility: landmarks and labels throughout, a tablist session strip with roving tabindex and arrow navigation, a polite live region that announces busy transitions and errors *on transition only*, accessible names on every status dot, `role="alert"` errors, Escape to cancel, Ctrl/Cmd+Enter to send, explicit button types, and always-visible focus.
+- Tool rows: status label, separate highlighted and copyable Input/Output sections, and a failed call opens itself.
+
+**Mermaid and KaTeX are deliberately deferred, not forgotten.** Three reasons, which should be weighed rather than assumed away:
+1. The webview CSP is `default-src 'none'` with no `font-src`. KaTeX without its fonts renders badly, so adopting it means widening the CSP and bundling fonts as data URIs.
+2. Both are large — KaTeX around 280 KB plus fonts, Mermaid well over 1 MB — against a current webview bundle of roughly 40 KB.
+3. Mermaid builds DOM from strings internally and has a history of XSS findings. Feeding it untrusted agent output directly contradicts the invariant the rest of the renderer now guarantees.
+   A safer route, if these are wanted: render diagrams and math in an isolated child webview with its own restrictive CSP, or offer "open this diagram in a Mermaid preview" rather than inlining it.
+
 ## Important current limitations / risks
 
 1. **Nothing here has been validated against a live agent in a live VS Code window.** All of the above is headless. This is the single largest outstanding risk and the reason parity cannot yet be claimed.
@@ -68,7 +82,7 @@ The `parked` agent map is gone; it was replaced, not extended.
 
 ## Remaining parity roadmap
 
-1. **0.15 Transcript UX** — safe syntax-highlighted Markdown, Mermaid diagrams, KaTeX math, better tool rows/output, accessibility and keyboard navigation.
+1. **0.15 Transcript UX (remainder)** — Mermaid diagrams and KaTeX math, if the trade-offs above are judged acceptable.
 2. **0.16 Change/workspace UX** — folder/flat changes switch, timeline filters, richer usage metrics (duration/tool calls), robust native diffs.
 3. **0.17–0.18 verification/release** — compatibility matrix across target agents and local/SSH/WSL/container workspaces; live VS Code UI smoke tests; reconnect chaos tests; packaging/signing/publishing materials.
 
@@ -106,4 +120,4 @@ Run `npm run typecheck` and `npm test` first; both should be green.
 Then either:
 
 - **(preferred) validate 0.11–0.14 against live agents in a live VS Code window.** Everything below is headless. Run `rostrum.detectAgents` on a machine with a real agent installed, start two conversations on one agent, prompt both, switch between them, reload the window mid-turn, and confirm the supervisor reattach, the session switcher and the background-approval notification behave as the headless tests claim; or
-- **continue 0.15 (transcript UX)**, which is the largest remaining user-visible gap. Note the constraint: agent output is untrusted and the webview currently renders it with `textContent` only. Any Markdown rendering must build DOM nodes directly — never `innerHTML` — and sanitise link hrefs. Mermaid and KaTeX would each need a bundled library under a CSP that forbids external resources; weigh that cost before committing to them.
+- **start 0.16 (change/workspace UX)** — folder/flat switch in the Changes view, timeline filters, richer usage metrics (duration, tool-call counts), robust native diffs. This is now the largest untouched section.
