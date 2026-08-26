@@ -15,8 +15,35 @@ export interface EditRecord {
 }
 
 export interface FileHistory {
+  /** Newest edit first. */
   path: string;
   edits: EditRecord[];
+}
+
+/**
+ * The net change to a file across every recorded edit.
+ *
+ * A per-edit diff answers "what did this tool call do"; this answers "what has
+ * the agent done to this file overall", which is the question you have when
+ * reviewing. Built from the oldest snapshot's `oldText` and the newest one's
+ * `newText`, so intermediate states collapse.
+ */
+export function aggregateDiff(
+  file: FileHistory,
+): { oldText: string; newText: string; edits: number; from: number; to: number } | undefined {
+  const snapshots = file.edits.filter((edit) => typeof edit.newText === "string");
+  if (snapshots.length === 0) return undefined;
+
+  const newest = snapshots[0];
+  const oldest = snapshots[snapshots.length - 1];
+  return {
+    // A file the agent created has no prior text at all.
+    oldText: oldest.oldText ?? "",
+    newText: newest.newText as string,
+    edits: snapshots.length,
+    from: oldest.at,
+    to: newest.at,
+  };
 }
 
 /**

@@ -44,6 +44,9 @@ class ScriptedAgent {
     this.loaded = [];
     this.supportsLoad = false;
     this.optionCalls = [];
+    this.authMethods = [];
+    this.authenticated = [];
+    this.requireAuth = false;
     this.configOptions = [
       {
         id: "model",
@@ -65,6 +68,7 @@ class ScriptedAgent {
         loadSession: this.supportsLoad,
         promptCapabilities: { image: true },
       },
+      authMethods: this.authMethods,
     };
   }
 
@@ -75,6 +79,7 @@ class ScriptedAgent {
   }
 
   async newSession() {
+    if (this.requireAuth) throw new Error("unauthenticated: run `agent login` first");
     this.nextSessionId += 1;
     return {
       sessionId: `session-${this.nextSessionId}`,
@@ -102,6 +107,11 @@ class ScriptedAgent {
     assert.ok(resolve, `no prompt in flight for ${sessionId}`);
     this.openPrompts.delete(sessionId);
     resolve({ stopReason: "end_turn", ...(usage ? { usage } : {}) });
+  }
+
+  async authenticate({ methodId }) {
+    this.authenticated.push(methodId);
+    this.requireAuth = false;
   }
 
   async cancel({ sessionId }) {
@@ -484,6 +494,68 @@ const textOf = (turns) =>
   await provider.setAgentPermissionMode("scripted", undefined);
   assert.equal(modeOf("scripted"), "ask", "clearing returns the agent to the global setting");
   ok("an agent can be returned to the global permission mode");
+}
+
+// --- authentication happens in the panel ------------------------------------
+{
+  const { provider, agent, posted } = await build();
+  agent.authMethods = [
+    { id: "oauth", name: "Sign in with a browser" },
+    { id: "token", name: "Paste an API token" },
+  ];
+  agent.requireAuth = true;
+
+  const starting = provider.startAgent("scripted");
+  await until(() => provider.active()?.currentRequest, "the authentication prompt");
+
+  // The failure is surfaced where the user is already looking, as a choice,
+  // rather than as a raw protocol error.
+  const request = provider.active().currentRequest;
+  assert.ok(request, "a failed first session offers authentication");
+  assert.match(request.title, /needs to be authenticated/);
+  assert.deepEqual(
+    request.options.map((option) => option.optionId),
+    ["oauth", "token", "reject"],
+    "every advertised method is offered, plus a way out",
+  );
+  assert.match(request.content[0].text, /unauthenticated/, "the agent's own reason is shown");
+  assert.equal(agent.authenticated.length, 0, "nothing is chosen on the user's behalf");
+
+  await provider.handleMessage({ type: "respond", requestId: request.requestId, optionId: "token" });
+  await starting;
+
+  assert.deepEqual(agent.authenticated, ["token"], "the chosen method is the one used");
+  assert.equal(provider.active().sessionId, "session-1", "the session opens once authenticated");
+  assert.equal(provider.active().pending.length, 0);
+  ok("a failed first session offers authentication in the panel and retries");
+}
+
+// --- declining authentication reports the real failure ----------------------
+{
+  const { provider, agent, posted } = await build();
+  agent.authMethods = [{ id: "oauth", name: "Sign in" }];
+  agent.requireAuth = true;
+
+  const starting = provider.startAgent("scripted");
+  await until(() => provider.active()?.currentRequest, "the authentication prompt");
+  const request = provider.active().currentRequest;
+  await provider.handleMessage({ type: "respond", requestId: request.requestId, optionId: "reject" });
+  await starting;
+
+  assert.deepEqual(agent.authenticated, []);
+  assert.equal(provider.liveSessions().length, 0, "no half-built session is left behind");
+  const errors = posted.filter((m) => m.type === "error").map((m) => m.message);
+  assert.match(errors.pop(), /unauthenticated/, "declining surfaces the underlying reason");
+  ok("declining authentication leaves the real failure visible");
+}
+
+// --- an agent needing no authentication is untouched -------------------------
+{
+  const { provider, agent } = await build();
+  await provider.startAgent("scripted");
+  assert.deepEqual(agent.authenticated, [], "an agent that works is never asked to authenticate");
+  assert.equal(provider.active().sessionId, "session-1");
+  ok("agents that need no authentication are not prompted");
 }
 
 // --- concurrent approvals are all reachable ---------------------------------

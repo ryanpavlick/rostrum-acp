@@ -9,7 +9,7 @@ import * as path from "node:path";
 
 import { availability, platformKey, toDefinition } from "../out/test/registry.js";
 import { UsageTracker, formatTokens } from "../out/test/usage.js";
-import { ChangeHistory } from "../out/test/history.js";
+import { ChangeHistory, aggregateDiff } from "../out/test/history.js";
 import { isSubAgentCall } from "../out/test/session.js";
 import { readCapabilities } from "../out/test/capabilities.js";
 import { SessionStore } from "../out/test/store.js";
@@ -237,4 +237,54 @@ check("missing agentCapabilities does not throw", () => {
 });
 
 await fs.rm(tmp, { recursive: true, force: true });
+// --- aggregate diffs ---------------------------------------------------------
+const edit = (at, oldText, newText) => ({
+  path: "/w/a.ts", sessionId: "s", agentKey: "qwen", at, oldText, newText,
+});
+
+check("aggregate diff spans oldest before to newest after", () => {
+  // `files()` returns newest first, which is the order this must handle.
+  const combined = aggregateDiff({
+    path: "/w/a.ts",
+    edits: [edit(300, "two", "three"), edit(200, "one", "two"), edit(100, "zero", "one")],
+  });
+  assert.equal(combined.oldText, "zero", "the oldest snapshot's before-text wins");
+  assert.equal(combined.newText, "three", "the newest snapshot's after-text wins");
+  assert.equal(combined.edits, 3);
+  assert.equal(combined.from, 100);
+  assert.equal(combined.to, 300);
+});
+
+check("a created file aggregates from empty rather than undefined", () => {
+  const combined = aggregateDiff({
+    path: "/w/a.ts",
+    edits: [edit(200, "one", "two"), { ...edit(100, undefined, "one"), oldText: undefined }],
+  });
+  assert.equal(combined.oldText, "");
+  assert.equal(combined.newText, "two");
+});
+
+check("edits recorded without content are skipped, not treated as empty", () => {
+  const combined = aggregateDiff({
+    path: "/w/a.ts",
+    edits: [
+      { path: "/w/a.ts", sessionId: "s", agentKey: "qwen", at: 300 },
+      edit(200, "one", "two"),
+    ],
+  });
+  assert.equal(combined.newText, "two", "a contentless edit must not blank the diff");
+  assert.equal(combined.edits, 1);
+});
+
+check("a file with no recorded content has no aggregate diff", () => {
+  assert.equal(
+    aggregateDiff({
+      path: "/w/a.ts",
+      edits: [{ path: "/w/a.ts", sessionId: "s", agentKey: "qwen", at: 1 }],
+    }),
+    undefined,
+  );
+  assert.equal(aggregateDiff({ path: "/w/a.ts", edits: [] }), undefined);
+});
+
 console.log(`\nPASS: ${passed} checks`);

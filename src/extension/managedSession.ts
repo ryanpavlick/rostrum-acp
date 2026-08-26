@@ -46,8 +46,17 @@ export class ManagedSession {
    * agent on a promise nothing can ever resolve.
    */
   pending: PendingRequest[] = [];
-  /** Elicitation resolvers by request id, for the same reason. */
-  readonly elicitResolvers = new Map<string, (answers?: Record<string, string>) => void>();
+  /**
+   * Resolvers for requests Rostrum itself is waiting on, by request id.
+   *
+   * Covers ACP elicitation and host-originated prompts such as
+   * authentication — anything whose answer is not routed back through
+   * `Session.respond`.
+   */
+  readonly requestResolvers = new Map<
+    string,
+    (optionId: string, answers?: Record<string, string>) => void
+  >();
   plan: PlanEntry[] = [];
   commands: SlashCommand[] = [];
   configOptions: ConfigOption[] = [];
@@ -75,7 +84,7 @@ export class ManagedSession {
   /** Drop one answered request, keeping the rest. */
   resolveRequest(requestId: string): void {
     this.pending = this.pending.filter((request) => request.requestId !== requestId);
-    this.elicitResolvers.delete(requestId);
+    this.requestResolvers.delete(requestId);
     this.refreshLifecycle();
   }
 
@@ -148,7 +157,7 @@ export class ManagedSession {
     this.usage = null;
     this.configOptions = [];
     this.pending = [];
-    this.elicitResolvers.clear();
+    this.requestResolvers.clear();
     this.mayDrainQueue = false;
     this.lastError = undefined;
     this.readOnly = false;

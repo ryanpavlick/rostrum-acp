@@ -212,6 +212,21 @@
         "command": "rostrum.setPermissionMode",
         "title": "Rostrum: Set Agent Permission Mode",
         "icon": "$(shield)"
+      },
+      {
+        "command": "rostrum.openFileDiff",
+        "title": "Rostrum: Show All Agent Changes to a File",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "rostrum.nextEdit",
+        "title": "Rostrum: Next Agent Edit",
+        "icon": "$(arrow-right)"
+      },
+      {
+        "command": "rostrum.previousEdit",
+        "title": "Rostrum: Previous Agent Edit",
+        "icon": "$(arrow-left)"
       }
     ],
     "menus": {
@@ -297,6 +312,11 @@
           "command": "rostrum.deleteSession",
           "when": "viewItem == rostrum.session",
           "group": "inline@2"
+        },
+        {
+          "command": "rostrum.openFileDiff",
+          "when": "viewItem == rostrum.changedFile",
+          "group": "inline@1"
         }
       ],
       "commandPalette": [
@@ -377,6 +397,18 @@
       {
         "view": "rostrum.usageStatsView",
         "contents": "Token usage appears here once an agent reports it."
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "rostrum.nextEdit",
+        "key": "alt+right",
+        "when": "resourceScheme == rostrum-diff"
+      },
+      {
+        "command": "rostrum.previousEdit",
+        "key": "alt+left",
+        "when": "resourceScheme == rostrum-diff"
       }
     ]
   },

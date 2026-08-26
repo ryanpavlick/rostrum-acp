@@ -273,7 +273,13 @@ export class ChangedFilesTree implements vscode.TreeDataProvider<ChangeNode> {
       item.resourceUri = uri;
       item.contextValue = "rostrum.changedFile";
       item.id = `file:${node.file.path}`;
-      item.command = { command: "vscode.open", title: "Open", arguments: [uri] };
+      // Opening the file answers nothing about what the agent changed; the
+      // net diff across every edit does.
+      item.command = {
+        command: "rostrum.openFileDiff",
+        title: "Show all agent changes",
+        arguments: [node.file],
+      };
       return item;
     }
 

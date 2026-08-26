@@ -100,6 +100,28 @@ export function activate(context: vscode.ExtensionContext): void {
       diffs.compareWithCurrent(edit),
     ),
 
+    vscode.commands.registerCommand("rostrum.openFileDiff", async (file) => {
+      if (file?.edits) {
+        await diffs.openFile(file);
+        return;
+      }
+      // Invoked from the palette with nothing selected: pick a file first.
+      await history.load();
+      const picked = await vscode.window.showQuickPick(
+        history.files().map((entry) => ({
+          label: path.basename(entry.path),
+          description: entry.path,
+          detail: `${entry.edits.length} edit${entry.edits.length === 1 ? "" : "s"}`,
+          entry,
+        })),
+        { placeHolder: "Show all agent changes to which file?" },
+      );
+      if (picked) await diffs.openFile(picked.entry);
+    }),
+
+    vscode.commands.registerCommand("rostrum.nextEdit", () => diffs.step("newer")),
+    vscode.commands.registerCommand("rostrum.previousEdit", () => diffs.step("older")),
+
     vscode.commands.registerCommand("rostrum.openDiff", async (filePath?: string) => {
       if (typeof filePath === "string") {
         await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(filePath));

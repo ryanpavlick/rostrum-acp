@@ -10,7 +10,7 @@
  */
 import * as path from "node:path";
 import * as vscode from "vscode";
-import type { EditRecord } from "./history.js";
+import { aggregateDiff, type EditRecord, type FileHistory } from "./history.js";
 
 /** Snapshots kept addressable; old ones are evicted rather than accumulating. */
 const MAX_SNAPSHOTS = 100;
@@ -22,6 +22,8 @@ export class AgentDiffProvider implements vscode.TextDocumentContentProvider, vs
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   private readonly registration: vscode.Disposable;
   private counter = 0;
+  /** What is on screen, so previous/next know where they are. */
+  private position: { file: FileHistory; index: number } | undefined;
 
   readonly onDidChange = this.changed.event;
 
@@ -54,14 +56,86 @@ export class AgentDiffProvider implements vscode.TextDocumentContentProvider, vs
   }
 
   /**
+   * Show a file's net change across every edit.
+   *
+   * This is what clicking a changed file should do: opening the file itself
+   * answers nothing about what the agent changed.
+   */
+  async openFile(file: FileHistory): Promise<void> {
+    const combined = aggregateDiff(file);
+    if (!combined) {
+      // Every edit was recorded without content, so there is nothing to diff.
+      await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(file.path));
+      return;
+    }
+
+    this.position = { file, index: -1 };
+    const name = path.basename(file.path);
+    const before = this.snapshot("before", file.path, combined.oldText);
+    const after = this.snapshot("after", file.path, combined.newText);
+    const span =
+      combined.edits === 1
+        ? new Date(combined.to).toLocaleString()
+        : `${combined.edits} edits, ${new Date(combined.from).toLocaleString()} → ${new Date(combined.to).toLocaleString()}`;
+
+    await vscode.commands.executeCommand(
+      "vscode.diff",
+      before,
+      after,
+      `${name} — all agent changes (${span})`,
+      { preview: true },
+    );
+  }
+
+  /**
+   * Walk a file's edits in time order.
+   *
+   * `edits` is newest-first, so moving to a *newer* edit means moving down the
+   * array. Index -1 is the aggregate view of the whole file, which sits above
+   * the newest individual edit.
+   */
+  async step(direction: "newer" | "older"): Promise<void> {
+    const position = this.position;
+    if (!position) {
+      void vscode.window.showInformationMessage("Open an agent edit first to step through its history.");
+      return;
+    }
+
+    const { file, index } = position;
+    const name = path.basename(file.path);
+
+    if (index === -1) {
+      if (direction === "newer") {
+        void vscode.window.showInformationMessage(`Already showing every change to ${name}.`);
+        return;
+      }
+      await this.open(file.edits[0], file, 0);
+      return;
+    }
+
+    const target = direction === "newer" ? index - 1 : index + 1;
+    if (target < 0) {
+      // Past the newest individual edit is the whole-file view.
+      await this.openFile(file);
+      return;
+    }
+    if (target >= file.edits.length) {
+      void vscode.window.showInformationMessage(`No older edit to ${name}.`);
+      return;
+    }
+    await this.open(file.edits[target], file, target);
+  }
+
+  /**
    * Open one recorded edit as a diff.
    *
    * An edit recorded without a snapshot — the agent reported the write but not
    * its content — can only be shown as the file itself, which is better than a
    * diff against nothing.
    */
-  async open(edit: EditRecord): Promise<void> {
+  async open(edit: EditRecord, file?: FileHistory, index?: number): Promise<void> {
     if (typeof edit?.path !== "string") return;
+    if (file && index !== undefined) this.position = { file, index };
 
     if (typeof edit.newText !== "string") {
       await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(edit.path));
@@ -75,10 +149,14 @@ export class AgentDiffProvider implements vscode.TextDocumentContentProvider, vs
 
     // Name both sides in the title: "which of these is the agent's version?"
     // is otherwise the first thing anyone has to work out.
+    const position =
+      this.position && this.position.index >= 0
+        ? ` ${this.position.file.edits.length - this.position.index}/${this.position.file.edits.length}`
+        : "";
     const title =
       edit.oldText === undefined
-        ? `${name} — created by ${edit.agentKey} (${when})`
-        : `${name} — before ↔ after ${edit.agentKey} (${when})`;
+        ? `${name} — created by ${edit.agentKey} (${when})${position}`
+        : `${name} — before ↔ after ${edit.agentKey} (${when})${position}`;
 
     await vscode.commands.executeCommand("vscode.diff", before, after, title, {
       preview: true,

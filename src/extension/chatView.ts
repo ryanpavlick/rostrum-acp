@@ -601,7 +601,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           if (live()) this.post({ type: "configOptions", options: controller.configOptions });
         },
         onElicit: (request, resolve) => {
-          controller.elicitResolvers.set(request.requestId, resolve);
+          controller.requestResolvers.set(request.requestId, (optionId, answers) =>
+            resolve(optionId.startsWith("accept") ? (answers ?? {}) : undefined),
+          );
           controller.pending.push(request);
           controller.refreshLifecycle();
           if (live()) this.postPending(controller);
@@ -621,6 +623,64 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.sessions.set(controller.id, controller);
     connection.sessions.add(controller);
     return controller;
+  }
+
+  /**
+   * Authenticate in the chat panel, in response to a failure.
+   *
+   * ACP has no "you must authenticate" error code, so the trigger is a failed
+   * `session/new` on an agent that advertises auth methods. Presenting it
+   * where the user is already looking beats a modal that appears before they
+   * have asked for anything — and unlike the opt-in startup prompt, this
+   * only ever fires when authentication is actually blocking work.
+   *
+   * Resolves true when the agent should be retried.
+   */
+  private async offerAuthentication(
+    connection: AgentConnection,
+    controller: ManagedSession,
+    error: unknown,
+  ): Promise<boolean> {
+    const methods = connection.initialize?.authMethods ?? [];
+    if (methods.length === 0 || !connection.agent.authenticate) return false;
+
+    const requestId = `auth-${connection.agentKey}-${Date.now()}`;
+    const request: PendingRequest = {
+      requestId,
+      title: `${connection.agentKey} needs to be authenticated`,
+      options: [
+        ...methods.map((method) => ({
+          optionId: method.id,
+          name: method.name,
+          kind: "allow_once",
+        })),
+        { optionId: "reject", name: "Not now", kind: "reject_once" },
+      ],
+      content: [{ kind: "text", text: String((error as Error)?.message ?? error) }],
+    };
+
+    // With nothing else on screen the user is starting this agent right now,
+    // so put the prompt where they are already looking. If they are mid-
+    // conversation elsewhere, a notification is less rude than a hijack.
+    if (!this.active()) await this.activate(controller);
+
+    const chosen = await new Promise<string>((resolve) => {
+      controller.requestResolvers.set(requestId, (optionId) => resolve(optionId));
+      controller.pending.push(request);
+      controller.refreshLifecycle();
+      if (this.isActive(controller)) this.postPending(controller);
+      else this.notifyBackgroundRequest(controller, request);
+    });
+
+    if (chosen === "reject") return false;
+
+    try {
+      await connection.agent.authenticate({ methodId: chosen });
+      return true;
+    } catch (failure) {
+      this.post({ type: "error", message: `Authentication failed: ${String(failure)}` });
+      return false;
+    }
   }
 
   /**
@@ -658,11 +718,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // somewhere to put them until the id is known.
     connection.router.setProvisional(controller.session);
     try {
-      const response = await connection.agent.newSession({
-        cwd: this.workspaceRoot(),
-        mcpServers: this.mcpServers(connection),
-        ...this.additionalDirectories(connection),
-      });
+      const open = () =>
+        connection.agent.newSession({
+          cwd: this.workspaceRoot(),
+          mcpServers: this.mcpServers(connection),
+          ...this.additionalDirectories(connection),
+        });
+
+      let response;
+      try {
+        response = await open();
+      } catch (error) {
+        // The usual reason a first session fails is that the agent has not
+        // been authenticated. Offer it in the panel and retry, rather than
+        // handing back a raw protocol error.
+        if (!(await this.offerAuthentication(connection, controller, error))) throw error;
+        response = await open();
+      }
 
       controller.resetConversation();
       controller.session.setTurns([]);
@@ -768,10 +840,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         break;
       case "respond": {
         if (!controller) break;
-        const elicit = controller.elicitResolvers.get(message.requestId);
-        if (elicit) {
-          // An elicitation, not a tool permission: resolve it directly.
-          elicit(message.optionId.startsWith("accept") ? (message.answers ?? {}) : undefined);
+        const resolver = controller.requestResolvers.get(message.requestId);
+        if (resolver) {
+          // Elicitation or a host-originated prompt: Rostrum owns the answer.
+          resolver(message.optionId, message.answers);
           controller.resolveRequest(message.requestId);
         } else {
           // `respond` fires onPendingResolved, which dequeues this one and
