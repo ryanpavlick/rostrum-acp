@@ -4,6 +4,14 @@
 
 Review fixes, several of them correctness rather than polish.
 
+- A tool-call update arriving after the next turn had begun overwrote an unrelated block in that newer turn, and never updated the real card. Tool cards now record their turn.
+- A session whose agent had exited reported itself idle again as soon as it stopped being busy.
+- An interrupted session restore permanently forgot the conversations it had not reached.
+- Discarding a session while it held a prompt hung whatever was waiting on the answer.
+- Deleting a session asked whichever agent was on screen rather than the one that owns it.
+- Model, thinking and permission selectors now sit under the input, with the permission selector always present; the supervisor port can be pinned with `rostrum.supervisorPort`.
+- `SessionStore.list()` no longer re-parses every transcript on every view refresh.
+
 - **Security:** session ids come from the agent and were used directly as filesystem paths, so an id like `../../evil` let an agent write and delete outside the session store. Transcripts are now named by the hash of the id.
 - Several concurrent permission or elicitation requests are all reachable. Previously each new one overwrote the last, leaving the earlier ask unanswerable and the agent blocked forever.
 - Every live conversation is restored after a window reload, with the one that was on screen restored to it — not just the visible one.

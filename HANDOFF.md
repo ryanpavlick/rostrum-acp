@@ -151,9 +151,13 @@ Also fixed while testing these: several optional agent methods were pulled off t
 - All file access must remain workspace-root/symlink safe; do not weaken `Session.resolve`.
 - Never auto-answer a permission request on the user's behalf, on screen or off.
 
+## Parity
+
+`docs/parity.md` holds the assessment against MultiCoder's actual marketplace listing, quoted rather than summarised. Short version: every documented capability now has an implementation and headless coverage; one is partial (`session/list`-based CLI history only works for agents that advertise it); and nothing has been run against a real agent or a remote workspace.
+
 ## Where this stands
 
-Every roadmap section from 0.11 through 0.18 now has an implementation and headless coverage: 165 automated checks across 14 suites, green, plus typecheck, build and packaging. Cross-platform CI runs all of it on Linux, macOS and Windows.
+Every roadmap section from 0.11 through 0.18, plus two rounds of review fixes, now has an implementation and headless coverage: 226 automated checks across 16 suites, green, plus typecheck, build and packaging. Cross-platform CI runs all of it on Linux, macOS and Windows.
 
 **What none of it has is a single run against a real agent in a real VS Code window.** That is the whole of what remains, and it cannot be faked from here. Until it is done, parity is claimed by construction and by test, not demonstrated — which the goal statement above explicitly rules out.
 
