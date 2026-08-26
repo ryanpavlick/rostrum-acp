@@ -94,6 +94,54 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand("rostrum.pickSession", () => chat.pickSession()),
 
+    vscode.commands.registerCommand("rostrum.searchSessions", async () => {
+      const query = await vscode.window.showInputBox({
+        prompt: "Search saved session transcripts",
+        placeHolder: "Text, reasoning, tool output, or a changed-file path",
+      });
+      if (!query?.trim()) return;
+      const results = await store.search(query);
+      const picked = await vscode.window.showQuickPick(
+        results.map((result) => ({
+          label: result.title,
+          description: result.agentKey,
+          detail: result.excerpt,
+          sessionId: result.sessionId,
+        })),
+        { placeHolder: results.length ? `${results.length} matching session${results.length === 1 ? "" : "s"}` : "No matching saved sessions" },
+      );
+      if (picked) await chat.loadSessionById(picked.sessionId);
+    }),
+
+    vscode.commands.registerCommand("rostrum.retryRecovery", async () => {
+      const waiting = chat.recoverySessions();
+      if (waiting.length === 0) {
+        void vscode.window.showInformationMessage("No Rostrum sessions are waiting for recovery.");
+        return;
+      }
+      const restored = await chat.retryRecovery();
+      void vscode.window.showInformationMessage(
+        `Recovered ${restored} of ${waiting.length} session${waiting.length === 1 ? "" : "s"}.`,
+      );
+    }),
+
+    vscode.commands.registerCommand("rostrum.agentDiagnostics", async () => {
+      const rows = chat.diagnostics();
+      if (rows.length === 0) {
+        void vscode.window.showInformationMessage("Start an agent to see Rostrum diagnostics.");
+        return;
+      }
+      output.appendLine("\nRostrum agent diagnostics:");
+      for (const row of rows) {
+        const caps = Object.entries(row.capabilities).filter(([, enabled]) => enabled).map(([name]) => name).join(", ") || "none";
+        output.appendLine(
+          `  ${row.agentKey}: ${row.alive ? "alive" : "disconnected"}, ${row.persistent ? "supervised" : "direct"}, ` +
+          `${row.sessions} session(s), catalog ${row.lastCatalogSync ? new Date(row.lastCatalogSync).toLocaleString() : "not synced"}, capabilities: ${caps}`,
+        );
+      }
+      output.show(true);
+    }),
+
     vscode.commands.registerCommand("rostrum.openHistoryDiff", (edit) => diffs.open(edit)),
 
     vscode.commands.registerCommand("rostrum.compareWithCurrent", (edit) =>

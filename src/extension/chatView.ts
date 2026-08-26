@@ -42,6 +42,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /** One live process per configured agent, shared by all of its sessions. */
   private readonly connections = new Map<string, AgentConnection>();
   private readonly sessions = new Map<string, ManagedSession>();
+  private readonly lastCatalogSync = new Map<string, number>();
   private activeId: string | null = null;
   /** True while reopening a saved set, so partial state is never published. */
   private restoring = false;
@@ -100,6 +101,48 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       key: connection.key,
       persistent: connection.persistent,
     }));
+  }
+
+  /** Data for the diagnostics command; no agent request is made here. */
+  diagnostics(): Array<{
+    agentKey: string;
+    persistent: boolean;
+    alive: boolean;
+    sessions: number;
+    lastCatalogSync?: number;
+    capabilities: Capabilities;
+  }> {
+    return [...this.connections.values()].map((connection) => ({
+      agentKey: connection.agentKey,
+      persistent: connection.persistent,
+      alive: connection.alive,
+      sessions: connection.sessions.size,
+      lastCatalogSync: this.lastCatalogSync.get(connection.agentKey),
+      capabilities: connection.capabilities,
+    }));
+  }
+
+  recoverySessions(): ReadonlyArray<RestorableSession> {
+    return this.unrestored;
+  }
+
+  /** Retry conversations that could not be attached during the last restore. */
+  async retryRecovery(): Promise<number> {
+    const waiting = [...this.unrestored];
+    this.unrestored = [];
+    let restored = 0;
+    for (const entry of waiting) {
+      const connection = await this.ensureConnection(entry.agentKey);
+      if (!connection) {
+        this.unrestored.push(entry);
+        continue;
+      }
+      const controller = await this.loadSession(connection, entry.sessionId, await this.store.load(entry.sessionId));
+      if (controller) restored += 1;
+      else this.unrestored.push(entry);
+    }
+    await this.pushState();
+    return restored;
   }
 
   /**
@@ -338,9 +381,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /**
    * Reopen every conversation this window was holding.
    *
-   * Restores are sequential and capped: each one may involve an ACP
-   * `session/load` that replays a whole transcript, and doing dozens at once
-   * on startup would stall the window.
+   * Restores are sequential: each one may involve an ACP `session/load` that
+   * replays a whole transcript, so never run them concurrently at startup.
    */
   private async restoreSessions(): Promise<boolean> {
     const saved = this.savedSessions();
@@ -351,12 +393,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     let active: ManagedSession | undefined;
     let failed = 0;
 
-    // Anything beyond the cap is not attempted, but must not be forgotten.
-    this.unrestored = saved.sessions.slice(MAX_RESTORED_SESSIONS);
+    const strategy = this.config().get<"all" | "recent" | "active">("restoreSessions") ?? "all";
+    const candidates = strategy === "active"
+      ? saved.sessions.filter((entry) => entry.sessionId === saved.activeSessionId)
+      : strategy === "recent"
+        ? saved.sessions.slice(-5)
+        : saved.sessions;
+    this.unrestored = saved.sessions.filter((entry) => !candidates.includes(entry));
 
     this.restoring = true;
     try {
-      for (const entry of saved.sessions.slice(0, MAX_RESTORED_SESSIONS)) {
+      for (const entry of candidates) {
         if (!configured.has(entry.agentKey)) {
           // The agent may simply not be configured in this window yet.
           this.unrestored.push(entry);
@@ -847,6 +894,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (page === 99) throw new Error("agent returned more than 100 session-list pages");
     }
     await this.store.replaceAgentCatalog(connection.agentKey, discovered);
+    this.lastCatalogSync.set(connection.agentKey, Date.now());
     this.onSessionsChanged();
   }
 
@@ -1544,8 +1592,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 export type { Turn, Block };
 
 /** How many conversations a reload will reopen before stopping. */
-const MAX_RESTORED_SESSIONS = 8;
-
 interface RestorableSession {
   agentKey: string;
   sessionId: string;

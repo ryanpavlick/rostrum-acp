@@ -92,10 +92,42 @@ await save("catalog", "not the catalog");
 await store.replaceAgentCatalog("qwen", [
   { sessionId: "remote-1", agentKey: "qwen", title: "Remote", updatedAt: 5 },
 ]);
-const listed = await store.list();
+let listed = await store.list();
 assert.ok(listed.some((entry) => entry.sessionId === "catalog"), "a session named catalog survives");
 assert.ok(listed.some((entry) => entry.sessionId === "remote-1"), "the agent catalog survives");
 ok("a session id of \"catalog\" cannot clobber the agent catalog");
+
+// --- transcript search -------------------------------------------------------
+await save("searchable", "Investigate compiler output");
+const searchable = await store.load("searchable");
+searchable.turns.push({
+  id: "assistant",
+  role: "assistant",
+  blocks: [{ kind: "tool", call: { id: "tool-1", title: "Run tests", kind: "execute", status: "completed", output: "TypeScript error TS2345" } }],
+});
+await store.save(searchable);
+const search = await store.search("ts2345");
+assert.deepEqual(search.map((entry) => entry.sessionId), ["searchable"]);
+assert.match(search[0].excerpt, /TS2345/);
+ok("transcript search finds tool output as well as user and agent text");
+
+// --- catalog changes are serialised ------------------------------------------
+await Promise.all([
+  store.replaceAgentCatalog("claude", [
+    { sessionId: "claude-1", agentKey: "claude", title: "Claude", updatedAt: 6 },
+  ]),
+  store.replaceAgentCatalog("codex", [
+    { sessionId: "codex-1", agentKey: "codex", title: "Codex", updatedAt: 7 },
+  ]),
+]);
+listed = await store.list();
+assert.ok(listed.some((entry) => entry.sessionId === "claude-1"));
+assert.ok(listed.some((entry) => entry.sessionId === "codex-1"));
+await Promise.all([store.delete("claude-1"), store.delete("codex-1")]);
+listed = await store.list();
+assert.equal(listed.some((entry) => entry.sessionId === "claude-1"), false);
+assert.equal(listed.some((entry) => entry.sessionId === "codex-1"), false);
+ok("simultaneous catalog updates and deletes do not lose another agent's history");
 
 // --- legacy transcripts remain readable --------------------------------------
 const legacy = path.join(root, "legacy-session.json");

@@ -153,10 +153,11 @@ export class AgentDiffProvider implements vscode.TextDocumentContentProvider, vs
       this.position && this.position.index >= 0
         ? ` ${this.position.file.edits.length - this.position.index}/${this.position.file.edits.length}`
         : "";
+    const provenance = ` · ${edit.agentKey} · session ${edit.sessionId}${edit.toolCallId ? ` · tool ${edit.toolCallId}` : ""}`;
     const title =
       edit.oldText === undefined
-        ? `${name} — created by ${edit.agentKey} (${when})${position}`
-        : `${name} — before ↔ after ${edit.agentKey} (${when})${position}`;
+        ? `${name} — created (${when})${provenance}${position}`
+        : `${name} — before ↔ after (${when})${provenance}${position}`;
 
     await vscode.commands.executeCommand("vscode.diff", before, after, title, {
       preview: true,

@@ -1,8 +1,9 @@
 # ACP compatibility matrix
 
-This matrix is **not filled in yet**. It has to be produced on a machine that
-actually has the agents installed and authenticated; nothing here can be
-inferred from the code.
+Results are produced on a machine that actually has the agents installed and
+authenticated; they are never inferred from the code. The dated results below
+are protocol-level evidence, not a claim of complete VS Code UI or remote-host
+coverage.
 
 ## Running the probe
 
@@ -70,4 +71,74 @@ cannot be automated here:
 
 ## Results
 
-_None recorded yet._
+### OpenCode
+
+Probed 2026-08-26 on Linux with `opencode acp`. The live prompt was: “Reply
+with exactly the word: ok”.
+
+| Check | Result | Detail |
+| --- | --- | --- |
+| initialize | yes | ACP protocol v1; auth method `opencode-login`; image and embedded-context prompts advertised |
+| session/new | yes | 2 session configuration options |
+| session/prompt | yes | Completed with `end_turn`, streamed the two-character reply, reported usage, and made no tool calls |
+| session/cancel | yes | Accepted |
+| session/load | yes | Advertised and completed |
+| session/resume | yes | Advertised and completed |
+| session/list | yes | Advertised and completed |
+| session/fork | yes | Advertised and completed |
+
+### Hermes
+
+Probed 2026-08-26 on Linux with `hermes acp`. The live prompt used the same
+minimal reply-only request.
+
+| Check | Result | Detail |
+| --- | --- | --- |
+| initialize | yes | ACP protocol v1; auth methods `custom` and `hermes-setup`; image prompts advertised |
+| session/new | yes | 3 modes |
+| session/prompt | no | Timed out after 30 seconds against the configured local model; no permission request was made |
+| session/cancel | yes | Accepted |
+| session/load | yes | Advertised and completed |
+| session/resume | yes | Advertised and completed |
+| session/list | yes | Advertised and completed |
+| session/fork | yes | Advertised and completed |
+
+Qwen Code 0.22.0 was also tested on 2026-08-26 through its `npx` ACP launch:
+initialize and session creation succeeded, and it advertised load, list,
+resume, session-mode, and five modes. The live ACP registry resolved 39
+installable Linux agents, including Qwen Code 0.22.2.
+
+### Goose (local llama.cpp)
+
+Goose 1.47.0 was installed from the ACP Registry's Linux release on 2026-08-26;
+its published SHA-256 was verified before installation. It was configured with
+`GOOSE_PROVIDER=openai`, `OPENAI_HOST=http://127.0.0.1:8080/v1`, and the local
+`Qwen3.8-27B` model.
+
+| Check | Result | Detail |
+| --- | --- | --- |
+| initialize | yes | ACP protocol v1; image and embedded-context prompts advertised |
+| session/new | yes | 4 modes and 4 configuration options |
+| session/prompt | yes | `end_turn` in 7.0s; 195 streamed characters; no tool calls |
+| session/cancel | yes | Accepted |
+| session/load | yes | Advertised and completed |
+| session/list | yes | Advertised and completed |
+| session/resume / session/fork | not advertised | Not called |
+
+### Pi ACP (local llama.cpp)
+
+The ACP Registry's `pi-acp@0.0.33` adapter was tested on 2026-08-26 with Pi
+configured for the same local llama.cpp endpoint and `Qwen3.8-27B` model.
+
+| Check | Result | Detail |
+| --- | --- | --- |
+| initialize | yes | ACP protocol v1; image prompts advertised |
+| session/new | yes | 6 modes and 2 configuration options |
+| session/prompt | yes | `end_turn` in 2.8s; 17 streamed characters; no tool calls |
+| session/cancel | yes | Accepted |
+| session/load | yes | Advertised and completed |
+| session/list | yes | Advertised and completed |
+| session/resume / session/fork | not advertised | Not called |
+
+These are protocol-level checks only. The by-hand VS Code, permission,
+attachment, MCP, and remote-host checks above remain outstanding.

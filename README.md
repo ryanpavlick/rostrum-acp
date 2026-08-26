@@ -89,6 +89,24 @@ npm run build
 
 Open the folder in VS Code and press `F5` to launch an Extension Development Host. Use `npm run watch` during UI or extension development.
 
+## Test
+
+The deterministic test and package gates are:
+
+```bash
+npm run typecheck
+npm test
+npm run build
+npx vsce package --no-dependencies
+```
+
+On a machine with OpenCode or Hermes installed, `npm run test:compat` also
+probes their direct ACP handshakes without sending a prompt or approving tool
+requests. `npm run test:extension` launches a real Extension Development Host
+and downloads the pinned VS Code baseline on first use. See the
+[testing plan](docs/testing.md) for the live-agent and desktop/remote-workspace
+coverage boundaries.
+
 ## Quick start
 
 1. Open a trusted project folder in VS Code.

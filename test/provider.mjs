@@ -392,7 +392,7 @@ const textOf = (turns) =>
   first.agent.supportsLoad = true;
   await first.provider.startAgent("scripted");
 
-  // Two finished conversations and one fresh, so restore has real work to do.
+  // Several finished conversations and one fresh, so restore has real work to do.
   for (const text of ["one", "two"]) {
     if (text === "two") await first.provider.newSession();
     const turn = first.provider.handleMessage({ type: "prompt", text });
@@ -401,7 +401,8 @@ const textOf = (turns) =>
     await turn;
   }
   await first.provider.newSession();
-  assert.equal(first.provider.liveSessions().length, 3);
+  for (let index = 0; index < 6; index += 1) await first.provider.newSession();
+  assert.equal(first.provider.liveSessions().length, 9);
 
   // Leave the middle one on screen, so restore has to honour which was active.
   const middle = first.provider.liveSessions().find((s) => s.sessionId === "session-2");
@@ -417,12 +418,12 @@ const textOf = (turns) =>
 
   assert.deepEqual(
     reloaded.provider.liveSessions().map((s) => s.sessionId).sort(),
-    ["session-1", "session-2", "session-3"],
-    "all three conversations come back, not just the visible one",
+    Array.from({ length: 9 }, (_, index) => `session-${index + 1}`),
+    "every conversation comes back, including more than the old startup cap",
   );
   assert.deepEqual(
     reloaded.agent.loaded.sort(),
-    ["session-1", "session-2", "session-3"],
+    Array.from({ length: 9 }, (_, index) => `session-${index + 1}`),
     "each one is reloaded through the agent, so its context comes back too",
   );
   assert.equal(

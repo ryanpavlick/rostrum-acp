@@ -38,3 +38,24 @@ jobs:
 
       - name: Package
         run: npx vsce package --no-dependencies
+
+  extension-smoke:
+    name: Extension Development Host smoke test
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # test-electron runs a real desktop binary. GitHub's Linux image needs a
+      # virtual display; the test itself has no agent credentials or networked
+      # ACP dependencies beyond downloading the pinned VS Code release.
+      - name: Extension Development Host smoke test
+        run: xvfb-run -a npm run test:extension

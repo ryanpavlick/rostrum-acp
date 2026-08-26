@@ -11,6 +11,14 @@ export interface StoredSession {
   turns: Turn[];
 }
 
+export interface SessionSearchResult {
+  sessionId: string;
+  agentKey: string;
+  title: string;
+  updatedAt: number;
+  excerpt: string;
+}
+
 /** Metadata for a session discovered from an ACP agent but not downloaded. */
 interface CatalogEntry extends SessionMeta {
   /** Agent-owned sessions have no locally persisted transcript yet. */
@@ -25,6 +33,13 @@ interface CatalogEntry extends SessionMeta {
  */
 export class SessionStore {
   constructor(private readonly root: string) {}
+
+  /**
+   * Catalog changes are read-modify-write operations shared by every agent.
+   * Serialising them prevents two simultaneous history syncs from each reading
+   * the same old catalog and silently discarding the other's entries.
+   */
+  private catalogPending: Promise<void> = Promise.resolve();
 
   /**
    * Name a transcript file by the hash of its session id, never by the id.
@@ -60,6 +75,14 @@ export class SessionStore {
   }
 
   private serial = 0;
+
+  private serializeCatalog(operation: () => Promise<void>): Promise<void> {
+    const result = this.catalogPending.then(operation);
+    // Keep a failed operation visible to its caller, but let the next one
+    // recover instead of permanently poisoning the catalog queue.
+    this.catalogPending = result.catch(() => undefined);
+    return result;
+  }
 
   /**
    * Parsed transcripts keyed by file, with the stat they were read at.
@@ -164,6 +187,28 @@ export class SessionStore {
     return [...merged.values()].sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
+  /** Search local transcripts, including messages and tool-call output. */
+  async search(query: string, limit = 100): Promise<SessionSearchResult[]> {
+    const needle = query.trim().toLocaleLowerCase();
+    if (!needle) return [];
+    const matches: SessionSearchResult[] = [];
+    for (const { session } of await this.readAll()) {
+      const text = transcriptText(session);
+      const index = `${session.title}\n${text}`.toLocaleLowerCase().indexOf(needle);
+      if (index < 0) continue;
+      const source = `${session.title}\n${text}`;
+      matches.push({
+        sessionId: session.sessionId,
+        agentKey: session.agentKey,
+        title: session.title,
+        updatedAt: session.updatedAt,
+        excerpt: source.slice(Math.max(0, index - 60), index + needle.length + 120).replace(/\s+/g, " "),
+      });
+      if (matches.length >= limit) break;
+    }
+    return matches.sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
   /** Look up the owning agent even when no local transcript exists. */
   async meta(sessionId: string): Promise<SessionMeta | undefined> {
     const local = await this.load(sessionId);
@@ -184,16 +229,23 @@ export class SessionStore {
    * must not make locally saved conversations disappear.
    */
   async replaceAgentCatalog(agentKey: string, sessions: SessionMeta[]): Promise<void> {
-    await fs.mkdir(this.root, { recursive: true });
-    const retained = (await this.readCatalog()).filter((entry) => entry.agentKey !== agentKey);
-    const deduped = new Map<string, CatalogEntry>();
-    for (const session of sessions) {
-      deduped.set(session.sessionId, { ...session, agentKey, source: "agent" });
-    }
-    const target = this.catalogFile();
-    const temp = `${target}.tmp`;
-    await fs.writeFile(temp, JSON.stringify([...retained, ...deduped.values()]), "utf8");
-    await fs.rename(temp, target);
+    await this.serializeCatalog(async () => {
+      await fs.mkdir(this.root, { recursive: true });
+      const retained = (await this.readCatalog()).filter((entry) => entry.agentKey !== agentKey);
+      const deduped = new Map<string, CatalogEntry>();
+      for (const session of sessions) {
+        deduped.set(session.sessionId, { ...session, agentKey, source: "agent" });
+      }
+      const target = this.catalogFile();
+      const temp = `${target}.${process.pid}.${(this.serial += 1)}.tmp`;
+      try {
+        await fs.writeFile(temp, JSON.stringify([...retained, ...deduped.values()]), "utf8");
+        await fs.rename(temp, target);
+      } catch (error) {
+        await fs.rm(temp, { force: true }).catch(() => undefined);
+        throw error;
+      }
+    });
   }
 
   async delete(sessionId: string): Promise<void> {
@@ -202,12 +254,19 @@ export class SessionStore {
       await fs.rm(found.file, { force: true });
       this.cache.delete(found.file);
     }
-    const retained = (await this.readCatalog()).filter((entry) => entry.sessionId !== sessionId);
     try {
-      const target = this.catalogFile();
-      const temp = `${target}.tmp`;
-      await fs.writeFile(temp, JSON.stringify(retained), "utf8");
-      await fs.rename(temp, target);
+      await this.serializeCatalog(async () => {
+        const retained = (await this.readCatalog()).filter((entry) => entry.sessionId !== sessionId);
+        const target = this.catalogFile();
+        const temp = `${target}.${process.pid}.${(this.serial += 1)}.tmp`;
+        try {
+          await fs.writeFile(temp, JSON.stringify(retained), "utf8");
+          await fs.rename(temp, target);
+        } catch (error) {
+          await fs.rm(temp, { force: true }).catch(() => undefined);
+          throw error;
+        }
+      });
     } catch {
       // A missing catalog is normal for local-only sessions.
     }
@@ -246,6 +305,16 @@ function isCatalogEntry(value: unknown): value is CatalogEntry {
     typeof entry.updatedAt === "number" &&
     entry.source === "agent"
   );
+}
+
+function transcriptText(session: StoredSession): string {
+  return session.turns.flatMap((turn) => turn.blocks.map((block) => {
+    if (block.kind === "text" || block.kind === "reasoning") return block.text;
+    if (block.kind === "tool") return `${block.call.title}\n${block.call.output ?? ""}`;
+    if (block.kind === "resource") return `${block.label}\n${block.text ?? ""}`;
+    if (block.kind === "diff") return `${block.path}\n${block.oldText}\n${block.newText}`;
+    return "";
+  })).join("\n");
 }
 
 /** First line of the opening user turn, trimmed for the sessions list. */

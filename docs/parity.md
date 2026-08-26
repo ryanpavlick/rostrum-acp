@@ -15,7 +15,7 @@ claiming parity on that basis. The gap is verification, not features.
 | --- | --- | --- |
 | "One UI, full VS Code integration for Claude Code, Codex, Copilot, OpenCode, Qwen, Pi, Hermes" | Any ACP agent; adapter-backed agents distinguished from native ones | Built, unverified live |
 | "1-click install for 35+ agents from the ACP registry" | `rostrum.installAgent`, checksum-verified; registry currently lists 39 | Built; registry fetch verified |
-| "Sessions survive window reloads and workspace switches — agents keep working" | Whole live set restored via the agent's own `session/load`/`resume`; state is per-workspace, so a workspace switch keeps its own set | Built, tested headlessly |
+| "Sessions survive window reloads and workspace switches — agents keep working" | Every saved live session is restored sequentially via the agent's own `session/load`/`resume`; state is per-workspace, so a workspace switch keeps its own set | Built, tested headlessly |
 | "a small local server that outlives the VS Code window" | Detached supervisor with `status`/`logs`/`stop`/`ping`, bounded buffers, agent registry, singleton guard, stale-state self-healing | Built, integration + chaos tested |
 | "By default it picks a free port; set `port` in settings.json to pin one" | `rostrum.supervisorPort`; a pinned port already in use fails with that reason | Built, tested |
 | "all your agent sessions in one place — CLI history included" | Agent-side sessions synced through `session/list` into the catalog | **Partial** — only for agents that advertise `session/list`; unverified |

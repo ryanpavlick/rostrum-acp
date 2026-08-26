@@ -95,7 +95,7 @@ A review against MultiCoder's documented feature set found eight things. Seven w
 
 1. **Session ids reached the filesystem.** Ids come from the agent and were used directly as path components, so `../../evil` wrote and deleted outside the store. Transcripts are now named by SHA-256 of the id, with the real id inside the file; legacy files are still found by scanning. Covered by `test/store-safety.mjs`.
 2. **Only one pending request was reachable.** The view held a single request while the protocol session held a map. Each new ask overwrote the last, leaving the earlier one unanswerable and the agent blocked on a promise nothing could resolve. Requests are now a per-session queue, oldest shown first, with a count of what is waiting.
-3. **Reload restored one conversation.** Now the whole set is recorded and reopened through the agent's own `session/load`/`resume`, with the previously visible one restored to screen. Capped at eight and sequential.
+3. **Reload restored one conversation.** Now the whole set is recorded and reopened sequentially through the agent's own `session/load`/`resume`, with the previously visible one restored to screen.
 4. **Sessions view had no filters.** It now takes the Timeline's time-window and agent filters; the on-screen conversation is always exempt.
 5. **Preferences were not per agent.** `src/extension/preferences.ts` remembers config options and permission mode per agent and restores them, sending only values that actually differ.
 6. **Diffs were per-edit only.** Clicking a changed file now shows the net diff across every edit, with `rostrum.nextEdit` / `rostrum.previousEdit` (alt+right / alt+left) stepping through them.
@@ -116,7 +116,7 @@ Also fixed while testing these: several optional agent methods were pulled off t
 
 ### 0.18 release materials — partly landed
 
-- Version bumped to 0.17.0 with a CHANGELOG entry per roadmap milestone.
+- Version bumped to 0.18.0 with a CHANGELOG entry per roadmap milestone.
 - `.github/workflows/ci.yml` runs typecheck, tests, build and packaging on Linux, macOS and Windows against Node 20 and 22. The supervisor is loopback TCP and spawns detached processes, so proving it on every claimed platform matters more here than usual. Two portability fixes were needed for this: the test clean is now a Node call rather than `rm -rf`, and the state-file permission assertion is skipped on Windows, which has no POSIX mode bits.
 - Still to do: a 128×128 PNG `icon` and `galleryBanner` for the Marketplace listing (`resources/sidebar.svg` is the activity-bar icon, not a Marketplace icon), publisher verification, and signing.
 
@@ -170,4 +170,4 @@ Then either:
 - **(preferred) validate 0.11–0.14 against live agents in a live VS Code window.** Everything below is headless. Run `rostrum.detectAgents` on a machine with a real agent installed, start two conversations on one agent, prompt both, switch between them, reload the window mid-turn, and confirm the supervisor reattach, the session switcher and the background-approval notification behave as the headless tests claim; or
 - **fill in the compatibility matrix.** Every roadmap section through 0.16 now has an implementation and headless coverage, and 0.17's harness is built; what none of it has is a single run against a real agent. Run `rostrum.detectAgents` in VS Code, copy the resulting `rostrum.agents` into an `agents.json`, then `node test/compat.mjs --agents ./agents.json --prompt >> docs/compatibility.md`, and work down the by-hand checklist in that file.
 
-Optional remainders, neither blocking: Mermaid/KaTeX (see the trade-offs above), and time-period *filters* in the Sessions view (the buckets exist, filtering does not).
+Optional remainder: Mermaid/KaTeX (see the trade-offs above). Session time and agent filters are implemented.
