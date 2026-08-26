@@ -11,7 +11,7 @@ Multicoder’s documented differentiators are a local server that outlives VS Co
 - Package: `rostrum` / Rostrum ACP, currently `0.17.0`. CHANGELOG records 0.11–0.17 individually.
 - Repository: `https://github.com/ryanpavlick/rostrum` (private), branch `main`.
 - Production build: `npm run build`.
-- Full automated suite: `npm test` — currently green: 20 unit, 7 regression, 9 feature, 16 supervisor, 9 chaos, 13 concurrency, 9 provider, 10 sessions view, 7 export, 15 discovery, 19 markdown, 13 highlight, 17 workspace view, and 1 ACP round-trip check.
+- Full automated suite: `npm test` — currently green: 20 unit, 7 regression, 9 feature, 16 supervisor, 9 chaos, 13 concurrency, 10 provider, 10 sessions view, 7 export, 15 discovery, 19 markdown, 13 highlight, 17 workspace view, and 1 ACP round-trip check.
 - Compatibility probe (not part of `npm test`, needs real agents): `node test/compat.mjs` — see `docs/compatibility.md`.
 - Package: `npx vsce package --no-dependencies`.
 - `test/mock-agent.py` is Python because an earlier sandbox suppressed Node processes spawned by another Node process. **That constraint no longer holds in the current environment** (verified: Node spawns Node, detached and piped, fine). The Python mock still works and is kept; new supervisor tests use a Node child (`test/echo-agent.mjs`) directly.
@@ -138,6 +138,12 @@ Each part's shaping logic lives outside the tree classes so it can be tested dir
 - ACP has no native steer method; current steer is intentionally a second prompt on the same session and behavior is agent-dependent.
 - All file access must remain workspace-root/symlink safe; do not weaken `Session.resolve`.
 - Never auto-answer a permission request on the user's behalf, on screen or off.
+
+## Where this stands
+
+Every roadmap section from 0.11 through 0.18 now has an implementation and headless coverage: 165 automated checks across 14 suites, green, plus typecheck, build and packaging. Cross-platform CI runs all of it on Linux, macOS and Windows.
+
+**What none of it has is a single run against a real agent in a real VS Code window.** That is the whole of what remains, and it cannot be faked from here. Until it is done, parity is claimed by construction and by test, not demonstrated — which the goal statement above explicitly rules out.
 
 ## Immediate next action
 
