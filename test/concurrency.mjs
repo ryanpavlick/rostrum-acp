@@ -172,11 +172,15 @@ controller.busy = true;
 controller.refreshLifecycle();
 assert.equal(controller.lifecycle, "running");
 
-controller.pending = { requestId: "r", title: "Allow?", options: [] };
+controller.pending = [{ requestId: "r", title: "Allow?", options: [] }];
 controller.refreshLifecycle();
 assert.equal(controller.lifecycle, "awaiting-approval", "needing the user outranks merely being busy");
 
-controller.pending = null;
+// Answering the only outstanding request returns the session to running.
+controller.resolveRequest("r");
+assert.equal(controller.lifecycle, "running");
+
+controller.pending = [];
 controller.busy = false;
 controller.fail("boom");
 assert.equal(controller.lifecycle, "error");
@@ -186,7 +190,14 @@ assert.equal(controller.lifecycle, "idle");
 fakeConnection.disposed = true;
 controller.refreshLifecycle();
 assert.equal(controller.lifecycle, "disconnected", "a dead process outranks every other state");
-assert.deepEqual(changes, ["running", "awaiting-approval", "error", "idle", "disconnected"]);
+assert.deepEqual(changes, [
+  "running",
+  "awaiting-approval",
+  "running",
+  "error",
+  "idle",
+  "disconnected",
+]);
 ok("session lifecycle reflects busy, approval, failure and disconnection");
 
 fakeConnection.disposed = false;
