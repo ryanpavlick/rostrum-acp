@@ -45,6 +45,8 @@ export interface PersistentAgentOptions {
   key: string;
   /** Display name, so supervisor status can name the agent, not just its hash. */
   agentKey?: string;
+  /** Pin the supervisor to a port; 0 or omitted picks a free one. */
+  port?: number;
 }
 
 /** One supervised agent, as the supervisor describes it. */
@@ -113,10 +115,11 @@ async function ensureManager(options: PersistentAgentOptions): Promise<ManagerSt
   let state = await managerState(options.stateFile);
   if (state) return state;
 
-  const manager = spawn(process.execPath, [options.managerScript, options.stateFile], {
-    detached: true,
-    stdio: "ignore",
-  });
+  const manager = spawn(
+    process.execPath,
+    [options.managerScript, options.stateFile, String(options.port ?? 0)],
+    { detached: true, stdio: "ignore" },
+  );
   manager.unref();
   for (let attempt = 0; attempt < 40 && !state; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 50));

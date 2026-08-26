@@ -115,6 +115,9 @@ export interface LiveSession {
 
 export type ModeOption = { id: string; name: string; description?: string };
 
+/** How much the agent may do without asking. */
+export type PermissionModeId = "ask" | "acceptEdits" | "yolo";
+
 /** Which optional ACP methods the connected agent actually supports. */
 export interface Capabilities {
   loadSession: boolean;
@@ -191,6 +194,8 @@ export interface ViewState {
   promptCapabilities: { image: boolean; audio: boolean; embeddedContext: boolean };
   /** Every conversation this window is running, not just the visible one. */
   liveSessions: LiveSession[];
+  /** The mode in force for the visible agent, per-agent override included. */
+  permissionMode: PermissionModeId;
 }
 
 /** A slash command the agent advertises. */
@@ -222,6 +227,7 @@ export type ViewMessage =
   | { type: "openDiff"; path: string; line?: number }
   | { type: "forkSession" }
   | { type: "setConfigOption"; id: string; value: string | boolean }
+  | { type: "setPermissionMode"; mode: PermissionModeId }
   | { type: "queuePrompt"; text: string }
   | { type: "unqueuePrompt"; index: number }
   | { type: "steer"; text: string }

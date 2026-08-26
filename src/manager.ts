@@ -55,8 +55,13 @@ const MAX_PENDING_BYTES = 1_048_576;
 const MAX_STDERR_BYTES = 262_144;
 const MAX_STDERR_LINES = 500;
 
-const [stateFile] = process.argv.slice(2);
+const [stateFile, portArgument] = process.argv.slice(2);
 if (!stateFile) throw new Error("Expected manager state-file path");
+// 0 means "pick a free port", which is the default.
+const requestedPort = Number.parseInt(portArgument ?? "", 10);
+const port = Number.isInteger(requestedPort) && requestedPort >= 0 && requestedPort <= 65535
+  ? requestedPort
+  : 0;
 
 const token = randomBytes(32).toString("hex");
 const startedAt = Date.now();
@@ -435,8 +440,16 @@ async function main(): Promise<void> {
   if (await existingManagerAlive()) process.exit(0);
 
   await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
+    server.once("error", (error: NodeJS.ErrnoException) => {
+      // A pinned port that is taken is a configuration problem worth failing
+      // on, rather than silently landing somewhere the client will not look.
+      reject(
+        port !== 0 && error.code === "EADDRINUSE"
+          ? new Error(`Port ${port} is already in use; change rostrum.supervisorPort.`)
+          : error,
+      );
+    });
+    server.listen(port, "127.0.0.1", resolve);
   });
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Could not bind manager port");

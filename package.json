@@ -374,6 +374,13 @@
           "type": "boolean",
           "default": false,
           "description": "Offer the agent's authentication methods on startup. Most agents (and all local models) need no authentication."
+        },
+        "rostrum.supervisorPort": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Loopback port for the background agent supervisor. 0 picks a free port; pin one if a firewall or policy requires a known port. Takes effect the next time the supervisor starts."
         }
       }
     },

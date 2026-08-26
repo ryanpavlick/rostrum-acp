@@ -121,5 +121,34 @@ assert.equal(
 );
 ok("malformed files in the store are skipped rather than breaking the list");
 
+// --- caching must not go stale ------------------------------------------------
+{
+  const cached = new SessionStore(path.join(tmp, "cached"));
+  await cached.save({ sessionId: "c1", agentKey: "qwen", title: "First", updatedAt: 1, turns });
+  assert.equal((await cached.list())[0].title, "First");
+
+  // Our own write must be visible immediately.
+  await cached.save({ sessionId: "c1", agentKey: "qwen", title: "Second", updatedAt: 2, turns });
+  assert.equal((await cached.list())[0].title, "Second");
+  assert.equal((await cached.load("c1")).title, "Second");
+  ok("a transcript rewritten through the store is read back immediately");
+
+  // A write from another window must be picked up too, which a cache keyed
+  // only on our own writes would miss.
+  const files = (await fs.readdir(path.join(tmp, "cached"))).filter((n) => n.endsWith(".json"));
+  const target = path.join(tmp, "cached", files[0]);
+  const raw = JSON.parse(await fs.readFile(target, "utf8"));
+  // A different size and a later mtime, as any real external write would have.
+  await fs.writeFile(target, JSON.stringify({ ...raw, title: "Changed elsewhere!!" }));
+  await fs.utimes(target, new Date(Date.now() + 2000), new Date(Date.now() + 2000));
+  assert.equal((await cached.list())[0].title, "Changed elsewhere!!");
+  ok("a transcript changed by another window is picked up rather than served stale");
+
+  await cached.delete("c1");
+  assert.deepEqual(await cached.list(), []);
+  assert.equal(await cached.load("c1"), undefined);
+  ok("a deleted transcript leaves the cache immediately");
+}
+
 await fs.rm(tmp, { recursive: true, force: true });
 console.log(`\nPASS: ${passed} store safety checks`);

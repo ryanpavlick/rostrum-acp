@@ -52,6 +52,7 @@ export class SessionStore {
     try {
       await fs.writeFile(temp, JSON.stringify(session), "utf8");
       await fs.rename(temp, target);
+      this.cache.delete(target);
     } catch (error) {
       await fs.rm(temp, { force: true }).catch(() => undefined);
       throw error;
@@ -59,6 +60,19 @@ export class SessionStore {
   }
 
   private serial = 0;
+
+  /**
+   * Parsed transcripts keyed by file, with the stat they were read at.
+   *
+   * `list()` runs on every view refresh and the sessions list is rendered
+   * constantly, so re-reading and re-parsing every transcript each time is
+   * real work. Keying on mtime and size means a file another window changed
+   * is still picked up, unlike a cache invalidated only by our own writes.
+   */
+  private readonly cache = new Map<
+    string,
+    { mtimeMs: number; size: number; session: StoredSession }
+  >();
 
   async load(sessionId: string): Promise<StoredSession | undefined> {
     const found = await this.locate(sessionId);
@@ -94,15 +108,40 @@ export class SessionStore {
       return [];
     }
 
+    const present = new Set<string>();
     const found = await Promise.all(
       entries
         .filter((name) => name.endsWith(".json") && name !== "catalog.json")
         .map(async (name) => {
           const file = path.join(this.root, name);
+          present.add(file);
+
+          let stat;
+          try {
+            stat = await fs.stat(file);
+          } catch {
+            return [];
+          }
+
+          const cached = this.cache.get(file);
+          if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+            return [{ file, session: cached.session }];
+          }
+
           const session = await readSession(file);
-          return session ? [{ file, session }] : [];
+          if (!session) {
+            this.cache.delete(file);
+            return [];
+          }
+          this.cache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, session });
+          return [{ file, session }];
         }),
     );
+
+    // Deleted files must not linger in the cache.
+    for (const file of [...this.cache.keys()]) {
+      if (!present.has(file)) this.cache.delete(file);
+    }
     return found.flat();
   }
 
@@ -159,7 +198,10 @@ export class SessionStore {
 
   async delete(sessionId: string): Promise<void> {
     const found = await this.locate(sessionId);
-    if (found) await fs.rm(found.file, { force: true });
+    if (found) {
+      await fs.rm(found.file, { force: true });
+      this.cache.delete(found.file);
+    }
     const retained = (await this.readCatalog()).filter((entry) => entry.sessionId !== sessionId);
     try {
       const target = this.catalogFile();

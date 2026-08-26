@@ -17,7 +17,7 @@ import type {
   ViewMessage,
   ViewState,
 } from "../shared/protocol.js";
-import type { AgentDefinition } from "./agentProcess.js";
+import { managerStateFile, type AgentDefinition } from "./agentProcess.js";
 import { AgentConnection, connectionKey } from "./agentConnection.js";
 import { ManagedSession } from "./managedSession.js";
 import { Session, displayBlocks, type PermissionMode } from "./session.js";
@@ -494,7 +494,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       definition,
       workspaceRoot,
       managerScript: this.context.asAbsolutePath("out/agent-manager.cjs"),
-      stateFile: this.context.globalStorageUri.fsPath + "/agent-manager.json",
+      stateFile: managerStateFile(this.context.globalStorageUri.fsPath),
+      supervisorPort: this.config().get<number>("supervisorPort"),
       onUnroutable: (method, sessionId) =>
         this.output.appendLine(
           `Dropped ${method} from ${agentKey}: no live session for id ${sessionId ?? "(absent)"}.`,
@@ -914,6 +915,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case "setConfigOption":
         if (controller) await this.setConfigOption(controller, message.id, message.value);
         break;
+      case "setPermissionMode": {
+        const agentKey = controller?.agentKey ?? this.lastAgentKey;
+        if (agentKey) await this.setAgentPermissionMode(agentKey, message.mode);
+        break;
+      }
       case "queuePrompt":
         if (!controller) break;
         controller.queue.push(message.text);
@@ -1493,6 +1499,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       queued: controller?.queue ?? [],
       promptCapabilities: connection?.promptCaps ?? { image: false, audio: false, embeddedContext: false },
       liveSessions: this.liveSessions(),
+      permissionMode: this.permissionMode(controller?.agentKey ?? this.lastAgentKey ?? undefined),
     };
     this.post({ type: "state", state });
     this.rememberSessions();

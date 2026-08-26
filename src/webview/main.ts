@@ -44,6 +44,7 @@ const state: ViewState = {
   queued: [],
   promptCapabilities: { image: false, audio: false, embeddedContext: false },
   liveSessions: [],
+  permissionMode: "ask",
 };
 
 let attachmentNames: string[] = [];
@@ -103,7 +104,7 @@ function announce(message: string): void {
   status.textContent = message;
 }
 
-root.append(header, sessionBar, optionBar, log, planHost, pendingHost, queueHost, attachHost, composer, status);
+root.append(header, sessionBar, log, planHost, pendingHost, queueHost, attachHost, composer, optionBar, status);
 
 const agentSelect = el("select", "picker");
 agentSelect.onchange = () => post({ type: "selectAgent", agent: agentSelect.value });
@@ -606,9 +607,45 @@ function renderSessions(): void {
  * Render whatever knobs the agent exposes. Nothing here is hard-coded to
  * "model" or "mode": an agent's own option list drives the UI.
  */
+/**
+ * The permission selector sits with the other controls under the input,
+ * because it is part of deciding how to send a prompt, not a buried setting.
+ * It is remembered per agent by the host.
+ */
+function renderPermissionMode(): void {
+  const select = el("select", "picker");
+  for (const mode of PERMISSION_MODES) {
+    const option = el("option", undefined, mode.label);
+    option.value = mode.id;
+    option.title = mode.hint;
+    option.selected = mode.id === state.permissionMode;
+    select.append(option);
+  }
+  select.setAttribute("aria-label", "How much the agent may do without asking");
+  select.title =
+    PERMISSION_MODES.find((mode) => mode.id === state.permissionMode)?.hint ?? "";
+  select.onchange = () =>
+    post({ type: "setPermissionMode", mode: select.value as ViewState["permissionMode"] });
+  const holder = labelled("Permissions", select);
+  holder.classList.add("permission-option");
+  optionBar.append(holder);
+}
+
+const PERMISSION_MODES: { id: ViewState["permissionMode"]; label: string; hint: string }[] = [
+  { id: "ask", label: "Ask every time", hint: "Every tool call waits for you" },
+  { id: "acceptEdits", label: "Accept edits", hint: "File edits run; anything else asks" },
+  { id: "yolo", label: "Accept all", hint: "Nothing asks — use with care" },
+];
+
 function renderOptions(): void {
   optionBar.replaceChildren();
+  renderAgentOptions();
+  // Always last, and always present: how much the agent may do on its own is
+  // not something an agent gets to withhold.
+  renderPermissionMode();
+}
 
+function renderAgentOptions(): void {
   // Fall back to session modes when the agent exposes no config options.
   if (state.configOptions.length === 0 && state.modes.length > 0) {
     const select = el("select", "picker");
@@ -623,6 +660,7 @@ function renderOptions(): void {
     optionBar.append(labelled("Mode", select));
     return;
   }
+
 
   for (const option of state.configOptions) {
     if (option.type === "boolean") {

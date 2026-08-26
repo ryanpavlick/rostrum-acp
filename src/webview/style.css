@@ -225,11 +225,16 @@ details.tool.sub-agent .tool-kind { color: var(--vscode-textLink-foreground); }
 }
 
 /* --- agent-driven option bar --- */
+/* Sits under the composer, so its border goes on top. */
 .option-bar {
   display: flex; flex-wrap: wrap; gap: 6px;
-  padding: 4px 8px; border-bottom: 1px solid var(--vscode-panel-border);
+  padding: 4px 8px; border-top: 1px solid var(--vscode-panel-border);
 }
 .option-bar:empty { display: none; }
+
+/* Permissions is the one control always present, so it anchors to the right. */
+.permission-option { margin-left: auto; }
+
 .option { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .option-name {
   font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;

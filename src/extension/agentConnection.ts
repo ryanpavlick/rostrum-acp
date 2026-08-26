@@ -158,6 +158,7 @@ export class AgentConnection {
     workspaceRoot: string;
     managerScript: string;
     stateFile: string;
+    supervisorPort?: number;
     onUnroutable: (method: string, sessionId: string | undefined) => void;
     onStderr: (chunk: string) => void;
     log: (message: string) => void;

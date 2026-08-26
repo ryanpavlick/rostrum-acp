@@ -28,8 +28,12 @@ const stateFile = path.join(tmp, "state", "agent-manager.json");
 const definition = { command: process.execPath, args: [agentScript] };
 const spawned = [];
 
-function startManager() {
-  const child = spawn(process.execPath, [managerScript, stateFile], { stdio: ["ignore", "pipe", "pipe"] });
+function startManager(port) {
+  const child = spawn(
+    process.execPath,
+    [managerScript, stateFile, String(port ?? 0)],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  );
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk) => { child.captured = (child.captured ?? "") + chunk; });
   spawned.push(child);
@@ -281,6 +285,27 @@ await assert.rejects(
   "the port is released, so a stale client cannot keep talking to a dead supervisor",
 );
 ok("stopping the supervisor kills its agents and clears the state file");
+
+// --- a pinned port ------------------------------------------------------------
+{
+  // Find a port that is free right now by letting the OS pick and releasing it.
+  const probe = net.createServer();
+  await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
+  const wanted = probe.address().port;
+  await new Promise((resolve) => probe.close(resolve));
+
+  await fs.rm(stateFile, { force: true });
+  startManager(wanted);
+  const pinned = await readState();
+  assert.equal(pinned.port, wanted, "a pinned port is the one actually listened on");
+
+  const status = await control(pinned, { type: "status" });
+  assert.equal(status.type, "status", "and the supervisor is reachable there");
+  ok("the supervisor can be pinned to a chosen port");
+
+  await control(pinned, { type: "stop" });
+  await sleep(300);
+}
 
 for (const child of spawned) child.kill("SIGKILL");
 await fs.rm(tmp, { recursive: true, force: true });
