@@ -66,6 +66,13 @@ const gemini = detected.find((entry) => entry.profile.id === "gemini");
 assert.deepEqual(gemini.definition, { command: "/usr/bin/gemini", args: ["--acp"] });
 ok("an agent that speaks ACP itself is configured to run directly");
 
+const localAgents = await detectAgents(probe(["/usr/bin/goose", "/usr/bin/pi"]));
+const goose = localAgents.find((entry) => entry.profile.id === "goose");
+assert.deepEqual(goose.definition, { command: "/usr/bin/goose", args: ["acp"] });
+const pi = localAgents.find((entry) => entry.profile.id === "pi-acp");
+assert.deepEqual(pi.definition, { command: "npx", args: ["-y", "pi-acp"] });
+ok("Goose and Pi ACP are discovered with their correct ACP launchers");
+
 // Claude and Codex do not answer an ACP handshake; the adapter does.
 const claude = detected.find((entry) => entry.profile.id === "claude-acp");
 assert.equal(claude.resolved, "/usr/bin/claude", "the CLI is what was found");

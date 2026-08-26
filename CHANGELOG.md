@@ -11,6 +11,9 @@ Review fixes, several of them correctness rather than polish.
 - Deleting a session asked whichever agent was on screen rather than the one that owns it.
 - Model, thinking and permission selectors now sit under the input, with the permission selector always present; the supervisor port can be pinned with `rostrum.supervisorPort`.
 - `SessionStore.list()` no longer re-parses every transcript on every view refresh.
+- Detect locally installed Goose and Pi, with the correct direct/adapter ACP
+  launchers. The compatibility probe now allows a bounded 60 seconds per
+  operation so healthy local-model turns are not reported as false timeouts.
 
 - **Security:** session ids come from the agent and were used directly as filesystem paths, so an id like `../../evil` let an agent write and delete outside the session store. Transcripts are now named by the hash of the id.
 - Several concurrent permission or elicitation requests are all reachable. Previously each new one overwrote the last, leaving the earlier ask unanswerable and the agent blocked forever.

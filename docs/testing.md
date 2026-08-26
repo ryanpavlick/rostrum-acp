@@ -15,6 +15,7 @@ does not claim that every agent or remote host has been exercised.
 | 1 | `npm run test:compat` | Developer machine or trusted self-hosted runner | Real ACP initialize/new-session/cancel and advertised session operations for installed direct agents. | Required before claiming a tested agent version |
 | 2 | `ROSTRUM_LIVE_PROMPT=1 npm run test:compat` | Explicit local/manual run only | A minimal real prompt and streamed turn. It can spend tokens. | Release-candidate sample |
 | 3 | `npm run test:extension` | Local or GUI-capable self-hosted runner | Launches a real Extension Development Host, activates Rostrum, and verifies its core commands are registered. | Required before release |
+| 3 | `npm run test:container` | Docker-capable host | Runs the deterministic suite in a clean Node 22 Alpine workspace host. | Required before dev-container release |
 
 The GitHub Actions matrix runs Tier 0 on Node 20 and 22 across Linux, macOS,
 and Windows. This is intentionally the merge gate: it has no agent credentials
@@ -60,6 +61,11 @@ client, process launcher, session restore, or webview protocol changes.
 | Permission and tool safety | Verify `ask`, `acceptEdits`, and `yolo` only in a disposable workspace; confirm questions remain visible. |
 | Remote host | Repeat fresh-session and changed-file checks in Remote SSH, WSL, and a dev container when those platforms are released. |
 | Platform | Exercise the packaged VSIX at least once on the supported desktop platforms represented by the CI matrix. |
+
+The container command intentionally installs `python3` inside the ephemeral
+image because the protocol test suite runs a Python mock ACP agent. It mounts
+the checkout read-only and copies it into the container, so it cannot modify
+the working tree.
 
 Use a disposable workspace for all live agent tests. Do not put credentials in
 the compatibility output, logs, or fixtures.

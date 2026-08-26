@@ -23,9 +23,6 @@
   "activationEvents": [
     "onStartupFinished"
   ],
-  "enabledApiProposals": [
-    "contribSecondarySidebar"
-  ],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -33,13 +30,6 @@
           "id": "rostrum-explorer",
           "title": "Rostrum",
           "icon": "resources/sidebar.svg"
-        }
-      ],
-      "secondarySidebar": [
-        {
-          "id": "rostrum-chat",
-          "title": "Rostrum",
-          "icon": "$(comment-discussion)"
         }
       ]
     },
@@ -74,9 +64,7 @@
           "name": "Usage Stats",
           "icon": "$(dashboard)",
           "visibility": "collapsed"
-        }
-      ],
-      "rostrum-chat": [
+        },
         {
           "type": "webview",
           "id": "rostrum.chatView",
@@ -461,6 +449,7 @@
     "test:live": "npm run build:test -s && node test/smoke-qwen.mjs",
     "test:compat": "npm run build:test -s && node test/compat-local.mjs",
     "test:extension": "npm run build -s && node test/e2e/run.mjs",
+    "test:container": "node test/container.mjs",
     "clean:test": "node -e \"require('node:fs').rmSync('out/test',{recursive:true,force:true})\""
   },
   "devDependencies": {

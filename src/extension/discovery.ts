@@ -69,6 +69,20 @@ export const KNOWN_AGENTS: AgentProfile[] = [
     acp: { mode: "direct", args: ["--acp", "--experimental-skills"] },
   },
   {
+    id: "goose",
+    name: "Goose",
+    binaries: ["goose"],
+    acp: { mode: "direct", args: ["acp"] },
+    notes: "Configure a Goose provider before starting it; Goose supports local OpenAI-compatible servers.",
+  },
+  {
+    id: "pi-acp",
+    name: "Pi ACP",
+    binaries: ["pi"],
+    acp: { mode: "adapter", package: "pi-acp", args: [] },
+    notes: "Pi ACP runs through the registry adapter; configure Pi's model provider before starting it.",
+  },
+  {
     id: "cline",
     name: "Cline",
     binaries: ["cline"],

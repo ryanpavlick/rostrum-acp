@@ -17,14 +17,7 @@ try {
     version: process.env.ROSTRUM_VSCODE_VERSION ?? "1.104.0",
     extensionDevelopmentPath: root,
     extensionTestsPath: path.join(root, "test/e2e/suite.cjs"),
-    launchArgs: [
-      `--folder-uri=${fixtureUri}`,
-      // The secondary-sidebar view contribution is still a proposed API at
-      // this VS Code baseline. Enable it only for the development host so the
-      // smoke test loads the same view registrations as local F5 development.
-      "--enable-proposed-api",
-      "rostrum-ai.rostrum",
-    ],
+    launchArgs: [`--folder-uri=${fixtureUri}`],
   });
 } catch (error) {
   console.error("Extension Development Host smoke test failed.", error);

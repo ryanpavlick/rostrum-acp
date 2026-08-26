@@ -48,7 +48,10 @@ function parseArgs(argv) {
 }
 
 const options = parseArgs(process.argv.slice(2));
-const TIMEOUT = options.timeout ?? 30_000;
+// Local models can take tens of seconds for the first agentic turn. Keep a
+// finite bound, but leave enough room that a healthy local inference server
+// is not reported as an ACP failure just because it finished near 30 seconds.
+const TIMEOUT = options.timeout ?? 60_000;
 
 /** Bound every probe: a hang is a result, not a reason to stop. */
 function withTimeout(promise, label, ms = TIMEOUT) {

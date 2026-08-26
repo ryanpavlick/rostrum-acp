@@ -42,7 +42,7 @@ Rostrum is for developers who want the freedom to select the best coding agent f
 
 ## What you get
 
-- A dedicated chat view in VS Code’s secondary sidebar, plus Sessions, Outline, Changes, Timeline, and Usage Stats views in the activity bar.
+- A dedicated Rostrum Chat view alongside Sessions, Outline, Changes, Timeline, and Usage Stats in one stable Activity Bar container.
 - Streaming agent messages, reasoning blocks, rich media/resources, tool calls and their status, plans/todos, and sub-agent delegation indicators.
 - Interactive permission prompts with `ask`, `acceptEdits`, and `yolo` modes; structured agent questions and ACP elicitation are shown in the UI instead of being silently answered.
 - Persistent transcripts: reopen the most recent workspace session, browse agent-provided and local history, load/resume conversations, fork when the agent supports it, delete saved sessions, and export transcripts as Markdown.
@@ -110,7 +110,7 @@ coverage boundaries.
 ## Quick start
 
 1. Open a trusted project folder in VS Code.
-2. Open the **Rostrum** view in the activity bar or the **Rostrum Chat** view in the secondary sidebar.
+2. Open the **Rostrum** view in the activity bar, then choose **Rostrum Chat**.
 3. Select **Rostrum: Select Agent**. Rostrum can discover common CLIs on your `PATH`, or use **Rostrum: Install Agent from Registry** to choose an agent from the ACP registry.
 4. If your agent is not already configured, add it to `rostrum.agents` as shown below.
 5. Run **Rostrum: New Session**, choose the agent, and send a prompt.

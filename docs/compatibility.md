@@ -49,7 +49,7 @@ node test/compat.mjs --agents ./agents.json >> docs/compatibility.md
   approving a tool call would run real work unasked.
 - **skipped** — `--prompt` was not passed.
 
-Every probe is bounded (30s by default, `--timeout` to change it) and
+Every probe is bounded (60s by default, `--timeout` to change it) and
 independent, so an agent that hangs on one method still yields a usable report
 for the rest. A hang *is* a result worth recording.
 
@@ -68,6 +68,19 @@ cannot be automated here:
 - [ ] Remote workspaces: SSH, WSL, dev container. The supervisor is loopback
       TCP and has never been run in any of them.
 - [ ] Windows: PATHEXT agent discovery, and supervisor startup.
+
+### Automated coverage completed on 2026-08-26
+
+- [x] Headless protocol, persistence, permission, attachment, terminal, MCP
+      validation, reload/recovery, and concurrency suites.
+- [x] Extension Development Host activation and command registration on VS Code
+      1.104.
+- [x] Fresh Node 22 Alpine container workspace host; the complete deterministic
+      suite passes when the image includes `python3` for the mock ACP agent.
+
+These checks exercise the implementation and a real VS Code host, but do not
+replace the interactive UI or actual Remote SSH/WSL extension-host scenarios
+listed above.
 
 ## Results
 
@@ -96,7 +109,7 @@ minimal reply-only request.
 | --- | --- | --- |
 | initialize | yes | ACP protocol v1; auth methods `custom` and `hermes-setup`; image prompts advertised |
 | session/new | yes | 3 modes |
-| session/prompt | no | Timed out after 30 seconds against the configured local model; no permission request was made |
+| session/prompt | yes | Completed with `end_turn`, streamed the two-character reply, reported usage, and made no tool calls in 29.1s; the probe deadline was raised to 60s so healthy local inference is not misreported as a failure |
 | session/cancel | yes | Accepted |
 | session/load | yes | Advertised and completed |
 | session/resume | yes | Advertised and completed |
