@@ -41,13 +41,24 @@ class ScriptedAgent {
     /** sessionId -> { resolve } for prompts the test holds open. */
     this.openPrompts = new Map();
     this.cancelled = [];
+    this.loaded = [];
+    this.supportsLoad = false;
   }
 
   async initialize() {
     return {
       protocolVersion: 1,
-      agentCapabilities: { promptCapabilities: { image: true } },
+      agentCapabilities: {
+        loadSession: this.supportsLoad,
+        promptCapabilities: { image: true },
+      },
     };
+  }
+
+  /** Present so `readCapabilities` sees the method; gated by `supportsLoad`. */
+  async loadSession({ sessionId }) {
+    this.loaded.push(sessionId);
+    return {};
   }
 
   async newSession() {
@@ -128,16 +139,18 @@ function fakeView(posted) {
   };
 }
 
-async function build() {
+async function build(previous) {
   stub.reset();
   // A real executable: the provider validates that an agent's command exists
   // before launching it, and the scripted connection replaces the process, not
   // that check.
   stub.config = { agents: { scripted: { command: process.execPath } }, permissionMode: "ask" };
 
-  const root = await fs.mkdtemp(path.join(tmp, "run-"));
-  const store = new SessionStore(path.join(root, "sessions"));
-  const workspaceState = new Map();
+  const root = previous?.root ?? (await fs.mkdtemp(path.join(tmp, "run-")));
+  const store = previous?.store ?? new SessionStore(path.join(root, "sessions"));
+  // A reload keeps the same storage and workspace state; only the extension
+  // host object graph is new.
+  const workspaceState = previous?.workspaceState ?? new Map();
   const context = {
     extensionUri: { fsPath: root },
     asAbsolutePath: (p) => path.join(root, p),
@@ -149,6 +162,8 @@ async function build() {
   };
   const posted = [];
   const agent = new ScriptedAgent();
+  agent.nextSessionId = previous?.agent.nextSessionId ?? 0;
+  agent.supportsLoad = previous?.agent.supportsLoad ?? false;
   const provider = new TestProvider(
     agent,
     context,
@@ -160,7 +175,7 @@ async function build() {
     () => {},
   );
   provider.resolveWebviewView(fakeView(posted));
-  return { provider, agent, store, posted };
+  return { provider, agent, store, posted, workspaceState, context, root };
 }
 
 const textOf = (turns) =>
@@ -313,6 +328,64 @@ const textOf = (turns) =>
     "revisiting an agent does not pile up empty conversations",
   );
   ok("agent switching is idempotent");
+}
+
+// --- every live conversation survives a window reload -----------------------
+{
+  const first = await build();
+  first.agent.supportsLoad = true;
+  await first.provider.startAgent("scripted");
+
+  // Two finished conversations and one fresh, so restore has real work to do.
+  for (const text of ["one", "two"]) {
+    if (text === "two") await first.provider.newSession();
+    const turn = first.provider.handleMessage({ type: "prompt", text });
+    await tick();
+    first.agent.finish(first.provider.active().sessionId);
+    await turn;
+  }
+  await first.provider.newSession();
+  assert.equal(first.provider.liveSessions().length, 3);
+
+  // Leave the middle one on screen, so restore has to honour which was active.
+  const middle = first.provider.liveSessions().find((s) => s.sessionId === "session-2");
+  await first.provider.revealSession(middle.controllerId);
+  assert.equal(first.provider.active().sessionId, "session-2");
+
+  // The window closes. The supervisor keeps the agent process alive, but the
+  // new extension host has to remember which conversations it was holding.
+  first.provider.dispose();
+
+  const reloaded = await build(first);
+  await reloaded.provider.handleMessage({ type: "ready" });
+
+  assert.deepEqual(
+    reloaded.provider.liveSessions().map((s) => s.sessionId).sort(),
+    ["session-1", "session-2", "session-3"],
+    "all three conversations come back, not just the visible one",
+  );
+  assert.deepEqual(
+    reloaded.agent.loaded.sort(),
+    ["session-1", "session-2", "session-3"],
+    "each one is reloaded through the agent, so its context comes back too",
+  );
+  assert.equal(
+    reloaded.provider.active().sessionId,
+    "session-2",
+    "the conversation that was on screen is the one restored to it",
+  );
+  ok("every live conversation is restored after a reload, with the right one on screen");
+
+  const target = reloaded.provider.liveSessions().find((s) => s.sessionId === "session-1");
+  await reloaded.provider.revealSession(target.controllerId);
+  assert.equal(reloaded.provider.active().readOnly, false, "a restored session can be prompted");
+
+  const running = reloaded.provider.handleMessage({ type: "prompt", text: "after reload" });
+  await tick();
+  assert.equal(reloaded.provider.active().lifecycle, "running");
+  reloaded.agent.finish("session-1");
+  await running;
+  ok("a restored conversation accepts new prompts");
 }
 
 // --- concurrent approvals are all reachable ---------------------------------

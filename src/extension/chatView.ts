@@ -78,7 +78,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private async activate(controller: ManagedSession): Promise<void> {
     this.activeId = controller.id;
     this.lastAgentKey = controller.agentKey;
-    this.rememberActiveSession();
     await this.pushState();
   }
 
@@ -247,22 +246,100 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       : {};
   }
 
-  private rememberActiveSession(): void {
-    const controller = this.active();
-    if (!controller?.sessionId) return;
-    void this.context.workspaceState.update("rostrum.activeSession", {
-      agentKey: controller.agentKey,
-      sessionId: controller.sessionId,
+  /**
+   * Record every live conversation, not just the visible one.
+   *
+   * The supervisor keeps agent processes alive across a window reload, but a
+   * process is not a conversation: the new extension host has to know which
+   * ACP session ids it was holding, or those conversations keep running with
+   * nothing able to reach them.
+   */
+  private rememberSessions(): void {
+    const active = this.active();
+    const sessions = [...this.sessions.values()]
+      .filter((controller) => controller.sessionId && !controller.readOnly)
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((controller) => ({
+        agentKey: controller.agentKey,
+        sessionId: controller.sessionId as string,
+      }));
+
+    void this.context.workspaceState.update("rostrum.liveSessions", {
+      activeSessionId: active?.sessionId ?? null,
+      sessions,
     });
   }
 
-  private activeSession(): { agentKey: string; sessionId: string } | undefined {
-    const saved = this.context.workspaceState.get<unknown>("rostrum.activeSession");
-    if (!saved || typeof saved !== "object") return undefined;
-    const active = saved as { agentKey?: unknown; sessionId?: unknown };
-    return typeof active.agentKey === "string" && typeof active.sessionId === "string"
-      ? { agentKey: active.agentKey, sessionId: active.sessionId }
-      : undefined;
+  /** What was live when this window last closed. */
+  private savedSessions(): { activeSessionId: string | null; sessions: RestorableSession[] } {
+    const saved = this.context.workspaceState.get<unknown>("rostrum.liveSessions");
+    if (saved && typeof saved === "object") {
+      const value = saved as { activeSessionId?: unknown; sessions?: unknown };
+      const sessions = Array.isArray(value.sessions)
+        ? value.sessions.filter(isRestorableSession)
+        : [];
+      return {
+        activeSessionId: typeof value.activeSessionId === "string" ? value.activeSessionId : null,
+        sessions,
+      };
+    }
+
+    // Fall back to the single-session key written by earlier versions.
+    const legacy = this.context.workspaceState.get<unknown>("rostrum.activeSession");
+    if (legacy && typeof legacy === "object" && isRestorableSession(legacy)) {
+      return { activeSessionId: legacy.sessionId, sessions: [legacy] };
+    }
+    return { activeSessionId: null, sessions: [] };
+  }
+
+  /**
+   * Reopen every conversation this window was holding.
+   *
+   * Restores are sequential and capped: each one may involve an ACP
+   * `session/load` that replays a whole transcript, and doing dozens at once
+   * on startup would stall the window.
+   */
+  private async restoreSessions(): Promise<boolean> {
+    const saved = this.savedSessions();
+    if (saved.sessions.length === 0) return false;
+    const configured = new Set(Object.keys(this.agentDefinitions()));
+
+    let restored: ManagedSession | undefined;
+    let active: ManagedSession | undefined;
+    const failures: string[] = [];
+
+    for (const entry of saved.sessions.slice(0, MAX_RESTORED_SESSIONS)) {
+      if (!configured.has(entry.agentKey)) continue;
+      const connection = await this.ensureConnection(entry.agentKey);
+      if (!connection) continue;
+
+      const controller = await this.loadSession(
+        connection,
+        entry.sessionId,
+        await this.store.load(entry.sessionId),
+        // One notice at the end beats one per conversation.
+        { announce: false },
+      );
+      if (!controller) {
+        failures.push(entry.sessionId);
+        continue;
+      }
+      restored ??= controller;
+      if (entry.sessionId === saved.activeSessionId) active = controller;
+    }
+
+    const target = active ?? restored;
+    if (!target) return false;
+    await this.activate(target);
+
+    const readOnly = [...this.sessions.values()].filter((controller) => controller.readOnly).length;
+    if (readOnly > 0) {
+      this.post({
+        type: "error",
+        message: `${readOnly} conversation${readOnly === 1 ? "" : "s"} could not be resumed by the agent and ${readOnly === 1 ? "is" : "are"} shown as a saved transcript only.`,
+      });
+    }
+    return true;
   }
 
   // --- connections ---------------------------------------------------------
@@ -645,12 +722,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
         const configured = Object.keys(this.agentDefinitions());
         const preferred = this.config().get<string>("defaultAgent");
-        const active = this.activeSession();
-        if (active && configured.includes(active.agentKey)) {
-          await this.startAgent(active.agentKey, false);
-          if (this.connections.get(active.agentKey)) await this.loadSessionById(active.sessionId);
-          break;
-        }
+        // Every conversation this window was holding, not just the last one
+        // that happened to be on screen.
+        if (await this.restoreSessions()) break;
         const initial = preferred && configured.includes(preferred) ? preferred : configured[0];
         if (initial) await this.startAgent(initial);
         else await this.pushState();
@@ -1034,7 +1108,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     connection: AgentConnection,
     sessionId: string,
     stored?: StoredSession,
-  ): Promise<void> {
+    options: { announce?: boolean } = {},
+  ): Promise<ManagedSession | undefined> {
+    // A conversation already open in this window must not be duplicated.
+    const existing = [...this.sessions.values()].find((entry) => entry.sessionId === sessionId);
+    if (existing) return existing;
+
+    const announce = options.announce ?? true;
     const controller = this.createController(connection);
     controller.title = stored?.title ?? "Loaded session";
 
@@ -1052,12 +1132,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         });
         this.applySessionSetup(controller, response ?? undefined);
         await this.activate(controller);
-        return;
+        return controller;
       } catch (error) {
-        this.post({
-          type: "error",
-          message: `Agent could not reload the session (${String(error)}); showing the saved transcript instead.`,
-        });
+        if (announce) {
+          this.post({
+            type: "error",
+            message: `Agent could not reload the session (${String(error)}); showing the saved transcript instead.`,
+          });
+        }
       }
     }
 
@@ -1073,25 +1155,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         controller.session.setTurns(stored?.turns ?? []);
         this.applySessionSetup(controller, response);
         await this.activate(controller);
-        if (!stored) {
+        if (!stored && announce) {
           this.post({
             type: "error",
             message: "Session context resumed. This agent does not provide its prior transcript, so only new messages will appear here.",
           });
         }
-        return;
+        return controller;
       } catch (error) {
-        this.post({
-          type: "error",
-          message: `Agent could not resume the session (${String(error)}); showing the saved transcript instead.`,
-        });
+        if (announce) {
+          this.post({
+            type: "error",
+            message: `Agent could not resume the session (${String(error)}); showing the saved transcript instead.`,
+          });
+        }
       }
     }
 
     const local = stored ?? (await this.store.load(sessionId));
     if (!local) {
       this.removeController(controller);
-      return;
+      return undefined;
     }
     // A transcript is useful to inspect but it must never be mistaken for a
     // live ACP session: prompts would otherwise target whichever session was
@@ -1100,10 +1184,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     controller.readOnly = true;
     controller.session.setTurns(local.turns);
     await this.activate(controller);
-    this.post({
-      type: "error",
-      message: "Showing a saved transcript only; this agent cannot restore its context. Start a new session to continue.",
-    });
+    if (announce) {
+      this.post({
+        type: "error",
+        message: "Showing a saved transcript only; this agent cannot restore its context. Start a new session to continue.",
+      });
+    }
+    return controller;
   }
 
   private applySessionSetup(
@@ -1227,6 +1314,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       liveSessions: this.liveSessions(),
     };
     this.post({ type: "state", state });
+    this.rememberSessions();
     this.publishTurns();
     if (controller) this.postAttachments(controller);
   }
@@ -1266,6 +1354,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 }
 
 export type { Turn, Block };
+
+/** How many conversations a reload will reopen before stopping. */
+const MAX_RESTORED_SESSIONS = 8;
+
+interface RestorableSession {
+  agentKey: string;
+  sessionId: string;
+}
+
+function isRestorableSession(value: unknown): value is RestorableSession {
+  if (!value || typeof value !== "object") return false;
+  const entry = value as Partial<RestorableSession>;
+  return typeof entry.agentKey === "string" && typeof entry.sessionId === "string";
+}
 
 function lifecycleIcon(state: SessionLifecycle): string {
   switch (state) {
