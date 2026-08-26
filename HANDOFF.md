@@ -8,10 +8,10 @@ Multicoder’s documented differentiators are a local server that outlives VS Co
 
 ## Current baseline
 
-- Package: `rostrum` / Rostrum ACP, currently `0.17.0`. CHANGELOG records 0.11–0.17 individually.
+- Package: `rostrum` / Rostrum ACP, currently `0.18.0`. CHANGELOG records 0.11–0.18 individually.
 - Repository: `https://github.com/ryanpavlick/rostrum` (private), branch `main`.
 - Production build: `npm run build`.
-- Full automated suite: `npm test` — currently green: 20 unit, 7 regression, 9 feature, 16 supervisor, 9 chaos, 13 concurrency, 10 provider, 10 sessions view, 7 export, 15 discovery, 19 markdown, 13 highlight, 17 workspace view, and 1 ACP round-trip check.
+- Full automated suite: `npm test` — currently green: 24 unit, 7 regression, 9 feature, 16 supervisor, 9 chaos, 13 concurrency, 20 provider, 13 sessions view, 9 store safety, 12 preference, 7 export, 15 discovery, 19 markdown, 13 highlight, 17 workspace view, and 1 ACP round-trip check.
 - Compatibility probe (not part of `npm test`, needs real agents): `node test/compat.mjs` — see `docs/compatibility.md`.
 - Package: `npx vsce package --no-dependencies`.
 - `test/mock-agent.py` is Python because an earlier sandbox suppressed Node processes spawned by another Node process. **That constraint no longer holds in the current environment** (verified: Node spawns Node, detached and piped, fine). The Python mock still works and is kept; new supervisor tests use a Node child (`test/echo-agent.mjs`) directly.
@@ -89,13 +89,25 @@ Each part's shaping logic lives outside the tree classes so it can be tested dir
 - `test/compat.mjs` is the compatibility-matrix harness: it runs one or more real agents through initialize, `session/new`, an optional live prompt, cancel, and each advertised optional method, and prints a Markdown matrix. Every probe is bounded and independent, so a method that hangs is recorded rather than stopping the run. It records permission requests and **never answers them** — approving a tool call would run real work unasked — and reports a stalled turn as "needs approval" rather than a bare timeout.
 - `docs/compatibility.md` holds the running instructions and the by-hand checklist. **The matrix itself is empty**: it needs a machine with the agents installed and authenticated.
 
+### Review fixes — landed
+
+A review against MultiCoder's documented feature set found eight things. Seven were actionable and are fixed; the eighth is the live-validation gap already recorded below.
+
+1. **Session ids reached the filesystem.** Ids come from the agent and were used directly as path components, so `../../evil` wrote and deleted outside the store. Transcripts are now named by SHA-256 of the id, with the real id inside the file; legacy files are still found by scanning. Covered by `test/store-safety.mjs`.
+2. **Only one pending request was reachable.** The view held a single request while the protocol session held a map. Each new ask overwrote the last, leaving the earlier one unanswerable and the agent blocked on a promise nothing could resolve. Requests are now a per-session queue, oldest shown first, with a count of what is waiting.
+3. **Reload restored one conversation.** Now the whole set is recorded and reopened through the agent's own `session/load`/`resume`, with the previously visible one restored to screen. Capped at eight and sequential.
+4. **Sessions view had no filters.** It now takes the Timeline's time-window and agent filters; the on-screen conversation is always exempt.
+5. **Preferences were not per agent.** `src/extension/preferences.ts` remembers config options and permission mode per agent and restores them, sending only values that actually differ.
+6. **Diffs were per-edit only.** Clicking a changed file now shows the net diff across every edit, with `rostrum.nextEdit` / `rostrum.previousEdit` (alt+right / alt+left) stepping through them.
+7. **Authentication sat outside the chat flow.** A failed first session on an agent advertising auth methods now offers them in the panel with the agent's own error text. The opt-in startup prompt remains, unchanged.
+
+Also fixed while testing these: several optional agent methods were pulled off the connection into a local before being called, which loses the receiver on any agent whose methods live on a prototype.
+
 ## Important current limitations / risks
 
 1. **Nothing here has been validated against a live agent in a live VS Code window.** All of the above is headless. This is the single largest outstanding risk and the reason parity cannot yet be claimed.
 2. **Reattach during an in-flight agent-originated request is untested against a real agent.** Specifically: a permission request outstanding when the window detaches. The supervisor buffers the request frame, but no real agent has been driven through it.
 3. **Remote extension hosts are unvalidated.** The supervisor is loopback TCP. SSH, WSL, dev containers and Windows all need checking — on a remote host the supervisor runs remotely, which is probably right, but it has not been confirmed.
-4. **Lifecycle states are not yet in the sidebar.** They exist on the controller and appear in the session picker, but `trees.ts` and the webview protocol do not carry them yet. `ViewState` still describes only the active conversation.
-5. **One pending request per controller.** If an agent raises a second permission request while a first is outstanding, the controller's `pending` field is overwritten and only the newest is rendered. `Session.pendingResolvers` still holds both, so nothing hangs permanently, but the older ask becomes unreachable from the UI. This predates the refactor.
 6. **Simultaneous sessions share one agent process.** That is the intended design, but agents that serialise work per process (rather than per session) will interleave turns poorly. Worth measuring per agent in the compatibility matrix.
 
 ## Remaining parity roadmap

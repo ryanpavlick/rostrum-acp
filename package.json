@@ -2,7 +2,7 @@
   "name": "rostrum",
   "displayName": "Rostrum ACP",
   "description": "One UI for every Agent Client Protocol coding agent. Run Claude, Codex, Qwen, OpenCode, Hermes and more inside VS Code, with full visibility into every change, tool call, and reasoning step.",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "publisher": "rostrum-ai",
   "license": "Apache-2.0",
   "type": "module",

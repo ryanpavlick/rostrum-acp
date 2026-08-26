@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.18.0
+
+Review fixes, several of them correctness rather than polish.
+
+- **Security:** session ids come from the agent and were used directly as filesystem paths, so an id like `../../evil` let an agent write and delete outside the session store. Transcripts are now named by the hash of the id.
+- Several concurrent permission or elicitation requests are all reachable. Previously each new one overwrote the last, leaving the earlier ask unanswerable and the agent blocked forever.
+- Every live conversation is restored after a window reload, with the one that was on screen restored to it — not just the visible one.
+- The Sessions view can be filtered by time window and agent.
+- Model, reasoning and permission mode are remembered per agent and restored on later sessions, including across a reload.
+- Clicking a changed file shows the net diff across every agent edit, with commands to step through the individual edits.
+- Authentication is offered in the chat panel when a first session fails, instead of a settings-gated quick pick shown before the user asked for anything.
+- Fixed a latent bug where optional agent methods were detached from the connection before being called, losing their receiver.
+
 ## 0.17.0
 
 - Add reconnect chaos tests for the persistent supervisor, and fix the two faults they found: concurrent state writes racing on a shared temp file could kill the supervisor and every agent with it, and an agent that exited left its client socket open so the extension never learned it had died.
