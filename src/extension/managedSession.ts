@@ -115,7 +115,7 @@ export class ManagedSession {
    * remember the precedence between "busy" and "waiting on the user".
    */
   refreshLifecycle(): void {
-    const next: SessionLifecycle = this.connection.disposed
+    const next: SessionLifecycle = !this.connection.alive
       ? "disconnected"
       : this.pending.length > 0
         ? "awaiting-approval"
@@ -166,6 +166,13 @@ export class ManagedSession {
 
   dispose(): void {
     this.abort?.abort();
+    // Anything waiting on an answer from this session gets a refusal rather
+    // than waiting forever on a promise nothing will ever resolve.
+    for (const [requestId, resolve] of this.requestResolvers) {
+      this.requestResolvers.delete(requestId);
+      resolve("reject");
+    }
+    this.pending = [];
     if (this.session.sessionId) this.connection.router.unregister(this.session.sessionId);
     this.session.dispose();
   }

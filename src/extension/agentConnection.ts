@@ -77,6 +77,17 @@ export class AgentConnection {
   exitCode: number | null | undefined;
 
   /**
+   * Whether this connection can still carry traffic.
+   *
+   * An agent that exited on its own is just as dead as one we disposed, and
+   * anything recomputing session state has to see that — otherwise a session
+   * whose agent is gone reports itself idle the moment it stops being busy.
+   */
+  get alive(): boolean {
+    return !this.disposed && this.exitCode === undefined;
+  }
+
+  /**
    * Bytes the supervisor discarded while no window was attached.
    *
    * Non-zero means this connection resumed a stream with a hole in it, which

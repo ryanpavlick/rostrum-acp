@@ -47,6 +47,8 @@ class ScriptedAgent {
     this.authMethods = [];
     this.authenticated = [];
     this.requireAuth = false;
+    this.failLoadFor = undefined;
+    this.exit = undefined;
     this.configOptions = [
       {
         id: "model",
@@ -74,8 +76,14 @@ class ScriptedAgent {
 
   /** Present so `readCapabilities` sees the method; gated by `supportsLoad`. */
   async loadSession({ sessionId }) {
+    if (this.failLoadFor === sessionId) throw new Error(`cannot load ${sessionId}`);
     this.loaded.push(sessionId);
     return {};
+  }
+
+  /** Simulate the agent process dying under the client. */
+  die(code) {
+    this.exit?.(code);
   }
 
   async newSession() {
@@ -112,6 +120,8 @@ class ScriptedAgent {
   async authenticate({ methodId }) {
     this.authenticated.push(methodId);
     this.requireAuth = false;
+    this.failLoadFor = undefined;
+    this.exit = undefined;
   }
 
   async cancel({ sessionId }) {
@@ -154,7 +164,13 @@ class TestProvider extends ChatViewProvider {
       onUnroutable: () => {},
       launch: (client) => {
         this.scripted.router = client();
-        return { agent: this.scripted, exited: new Promise(() => {}), dispose: () => {} };
+        return {
+          agent: this.scripted,
+          exited: new Promise((resolve) => {
+            this.scripted.exit = resolve;
+          }),
+          dispose: () => {},
+        };
       },
     });
   }
@@ -627,6 +643,77 @@ const textOf = (turns) =>
   agent.finish(provider.active().sessionId);
   await running;
   ok("restarting an agent leaves a usable session even when the old one cannot be reloaded");
+}
+
+// --- a dead agent keeps saying so -------------------------------------------
+{
+  const { provider, agent } = await build();
+  await provider.startAgent("scripted");
+  const controllerId = provider.liveSessions()[0].controllerId;
+
+  agent.die(3);
+  for (let i = 0; i < 20; i += 1) await tick();
+
+  assert.equal(
+    provider.liveSessions()[0].lifecycle,
+    "disconnected",
+    "the exit is reflected in the session's lifecycle",
+  );
+
+  // Anything that recomputes the lifecycle must not quietly decide the
+  // session is fine again just because it is no longer busy.
+  provider.sessions.get(controllerId).refreshLifecycle();
+  assert.equal(
+    provider.liveSessions()[0].lifecycle,
+    "disconnected",
+    "a session whose agent has exited must not report itself idle",
+  );
+  ok("a session whose agent exited keeps reporting disconnected");
+}
+
+// --- an interrupted restore does not lose the other conversations ------------
+{
+  const first = await build();
+  first.agent.supportsLoad = true;
+  await first.provider.startAgent("scripted");
+  await first.provider.newSession();
+  await first.provider.newSession();
+  assert.equal(first.provider.liveSessions().length, 3);
+  first.provider.dispose();
+
+  // The second conversation cannot be reloaded, so restore stops short of the
+  // full set. What was saved must still describe all three, or the ones it
+  // never reached are lost for good.
+  const reloaded = await build(first);
+  reloaded.agent.failLoadFor = "session-2";
+  await reloaded.provider.handleMessage({ type: "ready" });
+
+  const saved = reloaded.workspaceState.get("rostrum.liveSessions");
+  assert.deepEqual(
+    saved.sessions.map((entry) => entry.sessionId).sort(),
+    ["session-1", "session-2", "session-3"],
+    "a partial restore must not shrink the saved set",
+  );
+  ok("a restore that cannot reopen every conversation still remembers them all");
+}
+
+// --- a hung authentication prompt cannot wedge the agent ---------------------
+{
+  const { provider, agent } = await build();
+  agent.authMethods = [{ id: "oauth", name: "Sign in" }];
+  agent.requireAuth = true;
+
+  const starting = provider.startAgent("scripted");
+  await until(() => provider.active()?.currentRequest, "the authentication prompt");
+
+  // Restarting the agent tears down the controller holding the prompt. The
+  // caller waiting on that answer must not wait forever.
+  provider.dispose();
+  await Promise.race([
+    starting,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("startAgent never settled")), 2000)),
+  ]);
+  ok("discarding a session answers any prompt it was holding, instead of hanging");
 }
 
 // --- a misconfigured agent fails with an explanation ------------------------

@@ -160,7 +160,8 @@ ok("an edited agent definition or workspace yields a different connection key");
 // --- session lifecycle -------------------------------------------------------
 const fakeConnection = {
   agentKey: "qwen",
-  disposed: false,
+  // A connection is alive until its process is disposed or exits on its own.
+  alive: true,
   router: new SessionRouter(() => {}),
   sessions: new Set(),
 };
@@ -187,9 +188,14 @@ assert.equal(controller.lifecycle, "error");
 controller.clearError();
 assert.equal(controller.lifecycle, "idle");
 
-fakeConnection.disposed = true;
+fakeConnection.alive = false;
 controller.refreshLifecycle();
 assert.equal(controller.lifecycle, "disconnected", "a dead process outranks every other state");
+
+// And nothing that recomputes the lifecycle may talk it back out of that.
+controller.busy = false;
+controller.refreshLifecycle();
+assert.equal(controller.lifecycle, "disconnected", "a dead process stays dead");
 assert.deepEqual(changes, [
   "running",
   "awaiting-approval",
@@ -200,7 +206,7 @@ assert.deepEqual(changes, [
 ]);
 ok("session lifecycle reflects busy, approval, failure and disconnection");
 
-fakeConnection.disposed = false;
+fakeConnection.alive = true;
 controller.adoptSessionId("s1");
 assert.equal(fakeConnection.router.size, 1);
 controller.adoptSessionId("s2");

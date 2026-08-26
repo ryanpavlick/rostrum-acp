@@ -43,6 +43,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private readonly connections = new Map<string, AgentConnection>();
   private readonly sessions = new Map<string, ManagedSession>();
   private activeId: string | null = null;
+  /** True while reopening a saved set, so partial state is never published. */
+  private restoring = false;
+  /**
+   * Conversations that were saved but are not live right now.
+   *
+   * Kept so a conversation the agent could not reopen this time — it was
+   * offline, mid-update, temporarily broken — is still there to try again
+   * next time, rather than being forgotten the moment one attempt fails.
+   */
+  private unrestored: RestorableSession[] = [];
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -278,14 +288,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
    * nothing able to reach them.
    */
   private rememberSessions(): void {
+    // A restore rebuilds the set one conversation at a time. Publishing each
+    // intermediate state would let an interrupted restore overwrite the saved
+    // set with the handful it had reached, losing the rest for good.
+    if (this.restoring) return;
     const active = this.active();
-    const sessions = [...this.sessions.values()]
+    const live = [...this.sessions.values()]
       .filter((controller) => controller.sessionId && !controller.readOnly)
       .sort((a, b) => a.createdAt - b.createdAt)
       .map((controller) => ({
         agentKey: controller.agentKey,
         sessionId: controller.sessionId as string,
       }));
+
+    const seen = new Set(live.map((entry) => entry.sessionId));
+    const sessions = [
+      ...live,
+      ...this.unrestored.filter((entry) => !seen.has(entry.sessionId)),
+    ];
 
     void this.context.workspaceState.update("rostrum.liveSessions", {
       activeSessionId: active?.sessionId ?? null,
@@ -329,31 +349,54 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     let restored: ManagedSession | undefined;
     let active: ManagedSession | undefined;
-    const failures: string[] = [];
+    let failed = 0;
 
-    for (const entry of saved.sessions.slice(0, MAX_RESTORED_SESSIONS)) {
-      if (!configured.has(entry.agentKey)) continue;
-      const connection = await this.ensureConnection(entry.agentKey);
-      if (!connection) continue;
+    // Anything beyond the cap is not attempted, but must not be forgotten.
+    this.unrestored = saved.sessions.slice(MAX_RESTORED_SESSIONS);
 
-      const controller = await this.loadSession(
-        connection,
-        entry.sessionId,
-        await this.store.load(entry.sessionId),
-        // One notice at the end beats one per conversation.
-        { announce: false },
-      );
-      if (!controller) {
-        failures.push(entry.sessionId);
-        continue;
+    this.restoring = true;
+    try {
+      for (const entry of saved.sessions.slice(0, MAX_RESTORED_SESSIONS)) {
+        if (!configured.has(entry.agentKey)) {
+          // The agent may simply not be configured in this window yet.
+          this.unrestored.push(entry);
+          continue;
+        }
+        const connection = await this.ensureConnection(entry.agentKey);
+        if (!connection) {
+          this.unrestored.push(entry);
+          continue;
+        }
+
+        const controller = await this.loadSession(
+          connection,
+          entry.sessionId,
+          await this.store.load(entry.sessionId),
+          // One notice at the end beats one per conversation.
+          { announce: false },
+        );
+        if (!controller) {
+          this.unrestored.push(entry);
+          failed += 1;
+          continue;
+        }
+        restored ??= controller;
+        if (entry.sessionId === saved.activeSessionId) active = controller;
       }
-      restored ??= controller;
-      if (entry.sessionId === saved.activeSessionId) active = controller;
+    } finally {
+      this.restoring = false;
     }
 
     const target = active ?? restored;
     if (!target) return false;
     await this.activate(target);
+
+    if (failed > 0) {
+      this.post({
+        type: "error",
+        message: `${failed} conversation${failed === 1 ? "" : "s"} could not be reopened. ${failed === 1 ? "It is" : "They are"} still in the session history.`,
+      });
+    }
 
     const readOnly = [...this.sessions.values()].filter((controller) => controller.readOnly).length;
     if (readOnly > 0) {
@@ -1369,7 +1412,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private async deleteSession(sessionId: string): Promise<void> {
     const live = [...this.sessions.values()].find((entry) => entry.sessionId === sessionId);
-    const connection = live?.connection ?? this.active()?.connection;
+    // Ask the agent that owns the session, never whichever one happens to be
+    // on screen: session ids are only meaningful to their own agent.
+    const owner = live?.agentKey ?? (await this.store.meta(sessionId))?.agentKey;
+    const connection = owner ? this.connections.get(owner) : undefined;
     if (connection?.agent.deleteSession && connection.capabilities.deleteSession) {
       // Best effort: the local copy goes regardless of what the agent says.
       try {
@@ -1379,6 +1425,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
     }
     await this.store.delete(sessionId);
+    this.unrestored = this.unrestored.filter((entry) => entry.sessionId !== sessionId);
     if (live) {
       const wasActive = this.isActive(live);
       this.removeController(live);
