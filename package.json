@@ -1,0 +1,324 @@
+{
+  "name": "rostrum",
+  "displayName": "Rostrum ACP",
+  "description": "One UI for every Agent Client Protocol coding agent. Run Claude, Codex, Qwen, OpenCode, Hermes and more inside VS Code, with full visibility into every change, tool call, and reasoning step.",
+  "version": "0.10.0",
+  "publisher": "rostrum-ai",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./out/extension.cjs",
+  "engines": {
+    "vscode": "^1.104.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "rostrum-explorer",
+          "title": "Rostrum",
+          "icon": "resources/sidebar.svg"
+        }
+      ],
+      "secondarySidebar": [
+        {
+          "id": "rostrum-chat",
+          "title": "Rostrum",
+          "icon": "$(comment-discussion)"
+        }
+      ]
+    },
+    "views": {
+      "rostrum-explorer": [
+        {
+          "id": "rostrum.sessionsView",
+          "name": "Sessions",
+          "icon": "$(list-unordered)",
+          "initialSize": 300
+        },
+        {
+          "id": "rostrum.outlineView",
+          "name": "Outline",
+          "icon": "$(list-tree)",
+          "initialSize": 300
+        },
+        {
+          "id": "rostrum.changedFilesView",
+          "name": "Changes",
+          "icon": "$(edit-code)",
+          "initialSize": 300
+        },
+        {
+          "id": "rostrum.timelineView",
+          "name": "Timeline",
+          "icon": "$(diff)",
+          "initialSize": 300
+        },
+        {
+          "id": "rostrum.usageStatsView",
+          "name": "Usage Stats",
+          "icon": "$(dashboard)",
+          "visibility": "collapsed"
+        }
+      ],
+      "rostrum-chat": [
+        {
+          "type": "webview",
+          "id": "rostrum.chatView",
+          "name": "Rostrum Chat",
+          "icon": "$(comment-discussion)"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "rostrum.newSession",
+        "title": "Rostrum: New Session",
+        "icon": "$(add)"
+      },
+      {
+        "command": "rostrum.cancel",
+        "title": "Rostrum: Cancel Turn",
+        "icon": "$(stop-circle)"
+      },
+      {
+        "command": "rostrum.pickAgent",
+        "title": "Rostrum: Select Agent"
+      },
+      {
+        "command": "rostrum.editSettings",
+        "title": "Rostrum: Edit Agent Settings"
+      },
+      {
+        "command": "rostrum.openDiff",
+        "title": "Rostrum: Open Diff"
+      },
+      {
+        "command": "rostrum.restartAgent",
+        "title": "Rostrum: Restart Agent"
+      },
+      {
+        "command": "rostrum.installAgent",
+        "title": "Rostrum: Install Agent from Registry",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "rostrum.loadSession",
+        "title": "Rostrum: Load Session"
+      },
+      {
+        "command": "rostrum.pickSession",
+        "title": "Rostrum: Open Session",
+        "icon": "$(history)"
+      },
+      {
+        "command": "rostrum.deleteSession",
+        "title": "Rostrum: Delete Session",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "rostrum.refreshSessions",
+        "title": "Rostrum: Refresh Agent Sessions",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "rostrum.exportSession",
+        "title": "Rostrum: Export Session Transcript",
+        "icon": "$(export)"
+      },
+      {
+        "command": "rostrum.clearUsage",
+        "title": "Rostrum: Clear Usage Stats",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "rostrum.clearHistory",
+        "title": "Rostrum: Clear Change History",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "rostrum.revealTurn",
+        "title": "Rostrum: Reveal Turn in Chat"
+      },
+      {
+        "command": "rostrum.openHistoryDiff",
+        "title": "Rostrum: Open Historical Agent Diff"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "rostrum.newSession",
+          "when": "view == rostrum.chatView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "rostrum.cancel",
+          "when": "view == rostrum.chatView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "rostrum.installAgent",
+          "when": "view == rostrum.sessionsView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "rostrum.refreshSessions",
+          "when": "view == rostrum.sessionsView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "rostrum.clearHistory",
+          "when": "view == rostrum.changedFilesView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "rostrum.clearHistory",
+          "when": "view == rostrum.timelineView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "rostrum.clearUsage",
+          "when": "view == rostrum.usageStatsView",
+          "group": "navigation@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "rostrum.exportSession",
+          "when": "viewItem == rostrum.session",
+          "group": "inline@1"
+        },
+        {
+          "command": "rostrum.deleteSession",
+          "when": "viewItem == rostrum.session",
+          "group": "inline@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "rostrum.loadSession",
+          "when": "false"
+        },
+        {
+          "command": "rostrum.revealTurn",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Rostrum",
+      "properties": {
+        "rostrum.agents": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "Agent definitions, keyed by display name. Each value is `{ command, args, env, cwd, mcpServers? }`. Agent `mcpServers` override same-named global servers."
+        },
+        "rostrum.defaultAgent": {
+          "type": "string",
+          "default": "",
+          "description": "Agent selected on startup."
+        },
+        "rostrum.permissionMode": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "acceptEdits",
+            "yolo"
+          ],
+          "default": "ask",
+          "description": "How to answer agent permission requests."
+        },
+        "rostrum.mcpServers": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "MCP servers passed to every session, keyed by name. Stdio values are `{ command, args, env }`; HTTP/SSE values are `{ type: 'http' | 'sse', url, headers? }`. Unsupported remote transports are skipped safely."
+        },
+        "rostrum.promptForAuth": {
+          "type": "boolean",
+          "default": false,
+          "description": "Offer the agent's authentication methods on startup. Most agents (and all local models) need no authentication."
+        }
+      }
+    },
+    "viewsWelcome": [
+      {
+        "view": "rostrum.sessionsView",
+        "contents": "No sessions yet.\n[New Session](command:rostrum.newSession)\n[Install an Agent](command:rostrum.installAgent)"
+      },
+      {
+        "view": "rostrum.outlineView",
+        "contents": "The outline of the active session appears here."
+      },
+      {
+        "view": "rostrum.changedFilesView",
+        "contents": "No files changed by an agent yet."
+      },
+      {
+        "view": "rostrum.timelineView",
+        "contents": "Agent edits appear here in chronological order."
+      },
+      {
+        "view": "rostrum.usageStatsView",
+        "contents": "Token usage appears here once an agent reports it."
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "build:test": "esbuild src/extension/session.ts src/extension/agentProcess.ts src/extension/questions.ts src/extension/registry.ts src/extension/usage.ts src/extension/history.ts src/extension/capabilities.ts src/extension/terminals.ts src/extension/store.ts src/extension/mcp.ts src/extension/router.ts src/extension/managedSession.ts src/extension/agentConnection.ts src/extension/chatView.ts --bundle --platform=node --target=node20 --format=esm --outdir=out/test --external:vscode --alias:vscode=./test/stubs/vscode.ts",
+    "test": "npm run build:test -s && node test/units.mjs && node test/regressions.mjs && node test/features.mjs && node test/concurrency.mjs && node test/roundtrip.mjs",
+    "test:live": "npm run build:test -s && node test/smoke-qwen.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/vscode": "^1.104.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^1.4.0"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
+  },
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Agents execute commands in the workspace."
+    }
+  },
+  "keywords": [
+    "acp",
+    "agent client protocol",
+    "coding agent",
+    "ai",
+    "claude",
+    "codex",
+    "qwen",
+    "opencode",
+    "llm",
+    "chat"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rostrum-ai/rostrum.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rostrum-ai/rostrum/issues"
+  },
+  "homepage": "https://github.com/rostrum-ai/rostrum#readme"
+}

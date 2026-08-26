@@ -1,0 +1,279 @@
+/**
+ * End-to-end checks on the chat provider itself, driven headlessly against a
+ * scripted agent.
+ *
+ * These cover the parity claim that motivated the concurrent-session runtime:
+ * a turn keeps running, keeps recording, and gets persisted while the user is
+ * looking at a different conversation — and a background session that needs
+ * the user says so instead of being answered on its behalf.
+ */
+import assert from "node:assert/strict";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+
+import { ChatViewProvider } from "../out/test/chatView.js";
+import { AgentConnection } from "../out/test/agentConnection.js";
+import { SessionStore } from "../out/test/store.js";
+import { UsageTracker } from "../out/test/usage.js";
+import { stub } from "../out/test/stubs/vscode.js";
+
+let passed = 0;
+const ok = (n) => { passed += 1; console.log(`  ok  ${n}`); };
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "rostrum-provider-"));
+
+/** An ACP agent whose every response the test decides, turn by turn. */
+class ScriptedAgent {
+  constructor() {
+    this.router = null;
+    this.nextSessionId = 0;
+    /** sessionId -> { resolve } for prompts the test holds open. */
+    this.openPrompts = new Map();
+    this.cancelled = [];
+  }
+
+  async initialize() {
+    return {
+      protocolVersion: 1,
+      agentCapabilities: { promptCapabilities: { image: true } },
+    };
+  }
+
+  async newSession() {
+    this.nextSessionId += 1;
+    return { sessionId: `session-${this.nextSessionId}` };
+  }
+
+  /** Resolves only when the test calls `finish(sessionId)`. */
+  prompt({ sessionId }) {
+    return new Promise((resolve) => {
+      this.openPrompts.set(sessionId, resolve);
+    });
+  }
+
+  finish(sessionId, usage) {
+    const resolve = this.openPrompts.get(sessionId);
+    assert.ok(resolve, `no prompt in flight for ${sessionId}`);
+    this.openPrompts.delete(sessionId);
+    resolve({ stopReason: "end_turn", ...(usage ? { usage } : {}) });
+  }
+
+  async cancel({ sessionId }) {
+    this.cancelled.push(sessionId);
+  }
+
+  /** Stream assistant text into one session, as an agent would mid-turn. */
+  say(sessionId, text) {
+    return this.router.sessionUpdate({
+      sessionId,
+      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
+    });
+  }
+
+  ask(sessionId, title) {
+    return this.router.requestPermission({
+      sessionId,
+      toolCall: { title, kind: "edit" },
+      options: [{ optionId: "yes", name: "Allow", kind: "allow_once" }],
+    });
+  }
+}
+
+/** A provider wired to a scripted agent rather than a real process. */
+class TestProvider extends ChatViewProvider {
+  constructor(agent, ...rest) {
+    super(...rest);
+    this.scripted = agent;
+  }
+
+  connect(agentKey, definition, workspaceRoot) {
+    return AgentConnection.attach({
+      agentKey,
+      key: `${agentKey}-test`,
+      definition,
+      persistent: false,
+      onUnroutable: () => {},
+      launch: (client) => {
+        this.scripted.router = client();
+        return { agent: this.scripted, exited: new Promise(() => {}), dispose: () => {} };
+      },
+    });
+  }
+}
+
+function fakeView(posted) {
+  return {
+    webview: {
+      options: {},
+      html: "",
+      cspSource: "vscode-resource:",
+      asWebviewUri: (uri) => uri,
+      onDidReceiveMessage: () => ({ dispose() {} }),
+      postMessage: (message) => { posted.push(message); return Promise.resolve(true); },
+    },
+  };
+}
+
+async function build() {
+  stub.reset();
+  stub.config = { agents: { scripted: { command: "scripted" } }, permissionMode: "ask" };
+
+  const root = await fs.mkdtemp(path.join(tmp, "run-"));
+  const store = new SessionStore(path.join(root, "sessions"));
+  const workspaceState = new Map();
+  const context = {
+    extensionUri: { fsPath: root },
+    asAbsolutePath: (p) => path.join(root, p),
+    globalStorageUri: { fsPath: root },
+    workspaceState: {
+      get: (key) => workspaceState.get(key),
+      update: (key, value) => { workspaceState.set(key, value); return Promise.resolve(); },
+    },
+  };
+  const posted = [];
+  const agent = new ScriptedAgent();
+  const provider = new TestProvider(
+    agent,
+    context,
+    store,
+    { appendLine() {}, append() {} },
+    () => {},
+    new UsageTracker(path.join(root, "usage.json")),
+    () => {},
+    () => {},
+  );
+  provider.resolveWebviewView(fakeView(posted));
+  return { provider, agent, store, posted };
+}
+
+const textOf = (turns) =>
+  turns.flatMap((turn) => turn.blocks.filter((b) => b.kind === "text").map((b) => b.text));
+
+// --- a background turn keeps running, recording and persisting ---------------
+{
+  const { provider, agent, store, posted } = await build();
+
+  await provider.startAgent("scripted");
+  const [first] = provider.liveSessions();
+  assert.equal(first.sessionId, "session-1");
+  assert.equal(first.lifecycle, "idle");
+
+  const running = provider.handleMessage({ type: "prompt", text: "work on A" });
+  await tick();
+  assert.equal(provider.liveSessions()[0].lifecycle, "running");
+
+  // The user switches to a second conversation on the same agent while the
+  // first is still working. This is the case the parked-agent layer could not
+  // express: two live sessions on one agent server.
+  await provider.newSession();
+  const live = provider.liveSessions();
+  assert.equal(live.length, 2, "both conversations stay live on one connection");
+  assert.equal(live.find((s) => s.sessionId === "session-2").active, true);
+
+  posted.length = 0;
+  await agent.say("session-1", "background progress");
+  await tick();
+  assert.equal(
+    posted.filter((m) => m.type === "turn" || m.type === "turnDelta").length,
+    0,
+    "a background turn must not render into the conversation on screen",
+  );
+  ok("a background session's output never leaks into the visible transcript");
+
+  const stillRunning = provider.liveSessions().find((s) => s.sessionId === "session-1");
+  assert.equal(stillRunning.lifecycle, "running", "the background turn is still going");
+
+  agent.finish("session-1", { totalTokens: 30, inputTokens: 10, outputTokens: 20 });
+  await running;
+
+  const saved = await store.load("session-1");
+  assert.ok(saved, "a turn that completed off screen is persisted");
+  assert.deepEqual(textOf(saved.turns), ["work on A", "background progress"]);
+  ok("a prompt continues to completion while the user works elsewhere");
+
+  const visible = await store.load("session-2");
+  assert.equal(visible, undefined, "the empty visible session records nothing of its own");
+  assert.equal(
+    provider.liveSessions().find((s) => s.sessionId === "session-1").lifecycle,
+    "idle",
+    "the finished background session settles",
+  );
+  ok("background completion is persisted without touching the other session");
+}
+
+// --- background approval is surfaced, never granted --------------------------
+{
+  const { provider, agent } = await build();
+
+  await provider.startAgent("scripted");
+  const background = provider.handleMessage({ type: "prompt", text: "edit files" });
+  await tick();
+  await provider.newSession();
+  await tick();
+
+  let settled = false;
+  const permission = agent.ask("session-1", "Write src/index.ts").then((value) => {
+    settled = true;
+    return value;
+  });
+  await tick();
+
+  assert.equal(settled, false, "an off-screen permission ask is never auto-answered");
+  assert.equal(stub.notifications.length, 1, "the user is told which session needs them");
+  assert.match(stub.notifications[0], /Write src\/index\.ts/);
+  assert.match(stub.notifications[0], /scripted/);
+  assert.equal(
+    provider.liveSessions().find((s) => s.sessionId === "session-1").lifecycle,
+    "awaiting-approval",
+  );
+  ok("a background permission request notifies instead of auto-approving");
+
+  // Opening the session from the notification puts the request back on screen,
+  // where answering it resolves the agent's original call.
+  stub.nextNotificationChoice = "Open session";
+  await agent.say("session-1", "still waiting");
+  await tick();
+  await agent.ask("session-1", "Second ask").catch(() => {});
+  await tick();
+
+  const pendingRequestId = provider.active().pending.requestId;
+  await provider.handleMessage({ type: "respond", requestId: pendingRequestId, optionId: "yes" });
+  const outcome = await permission;
+  assert.deepEqual(outcome.outcome, { outcome: "selected", optionId: "yes" });
+  ok("answering an activated background request reaches the agent that asked");
+
+  agent.finish("session-1");
+  await background;
+}
+
+// --- switching agents keeps each conversation intact -------------------------
+{
+  const { provider, agent, posted } = await build();
+  stub.config.agents = { scripted: { command: "scripted" }, other: { command: "scripted" } };
+
+  await provider.startAgent("scripted");
+  await agent.say("session-1", "hello from scripted");
+  await tick();
+
+  await provider.startAgent("other");
+  assert.equal(provider.liveSessions().length, 2);
+
+  posted.length = 0;
+  await provider.startAgent("scripted");
+  const state = posted.filter((m) => m.type === "state").pop();
+  assert.equal(state.currentAgent, "scripted");
+  assert.deepEqual(textOf(state.turns), ["hello from scripted"]);
+  ok("switching back to an agent reveals its conversation, not a fresh one");
+
+  assert.equal(
+    provider.liveSessions().length,
+    2,
+    "revisiting an agent does not pile up empty conversations",
+  );
+  ok("agent switching is idempotent");
+}
+
+await fs.rm(tmp, { recursive: true, force: true });
+console.log(`\nPASS: ${passed} provider checks`);
