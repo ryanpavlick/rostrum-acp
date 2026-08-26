@@ -223,6 +223,16 @@ function start(request: Extract<Request, { type: "attach" }>): Managed {
     void writeState();
   });
 
+  // `close` fires once the child has exited *and* its stdio has drained, so
+  // the client gets the agent's last frames before the connection ends.
+  // Ending it is what tells the extension the agent is gone: an attached
+  // client whose socket never closes would wait on a dead process forever.
+  child.on("close", () => {
+    const client = managed.client;
+    managed.client = undefined;
+    client?.end();
+  });
+
   void writeState();
   return managed;
 }
@@ -326,6 +336,11 @@ function shutdown(): void {
   void fs.rm(stateFile, { force: true }).finally(() => process.exit(0));
 }
 
+// The supervisor outlives the editor; an unexpected rejection anywhere must
+// not take every running agent down with it.
+process.on("unhandledRejection", () => undefined);
+process.on("uncaughtException", () => undefined);
+
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
     for (const managed of agents.values()) kill(managed);
@@ -342,7 +357,23 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
  * `writeFile`'s mode applies only when it creates the file, so an existing
  * file is re-secured explicitly rather than trusted.
  */
-async function writeState(): Promise<void> {
+let statePending: Promise<void> = Promise.resolve();
+let stateSerial = 0;
+
+/**
+ * Serialise state writes and never let one reject.
+ *
+ * Agent start, agent exit and `stop` can all publish at once. Sharing a single
+ * temp filename let two writers race, so the loser's `rename` failed with
+ * ENOENT — and because these are fire-and-forget, that surfaced as an
+ * unhandled rejection, which takes the whole supervisor down with it.
+ */
+function writeState(): Promise<void> {
+  statePending = statePending.then(() => publishState().catch(() => undefined));
+  return statePending;
+}
+
+async function publishState(): Promise<void> {
   const payload = JSON.stringify({
     pid: process.pid,
     port: (server.address() as net.AddressInfo | null)?.port ?? 0,
@@ -356,10 +387,16 @@ async function writeState(): Promise<void> {
       startedAt: managed.startedAt,
     })),
   });
-  const temp = `${stateFile}.tmp`;
-  await fs.writeFile(temp, payload, { mode: 0o600 });
-  await fs.chmod(temp, 0o600).catch(() => undefined);
-  await fs.rename(temp, stateFile);
+  stateSerial += 1;
+  const temp = `${stateFile}.${process.pid}.${stateSerial}.tmp`;
+  try {
+    await fs.writeFile(temp, payload, { mode: 0o600 });
+    await fs.chmod(temp, 0o600).catch(() => undefined);
+    await fs.rename(temp, stateFile);
+  } catch (error) {
+    await fs.rm(temp, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 /**
