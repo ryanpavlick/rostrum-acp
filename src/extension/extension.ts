@@ -2,13 +2,13 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { managerLogs, managerStateFile, managerStatus, managerStop } from "./agentProcess.js";
 import { ChatViewProvider } from "./chatView.js";
+import { formatForPath, serializeTranscript } from "./export.js";
 import { ChangeHistory } from "./history.js";
 import { migrateLegacySettings } from "./migrate.js";
 import { availability, fetchRegistry, settingsKey, toDefinition } from "./registry.js";
 import { SessionStore } from "./store.js";
 import { ChangedFilesTree, OutlineTree, SessionsTree, TimelineTree, UsageStatsTree } from "./trees.js";
 import { UsageTracker } from "./usage.js";
-import type { Block, Turn } from "../shared/protocol.js";
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel("Rostrum");
@@ -145,12 +145,19 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       const target = await vscode.window.showSaveDialog({
         defaultUri: vscode.Uri.file(path.join(storage, `${safeFileName(session.title)}.md`)),
-        filters: { Markdown: ["md"] },
+        // The chosen extension picks the format: Markdown to read, JSON to keep.
+        filters: { Markdown: ["md"], JSON: ["json"] },
         saveLabel: "Export Transcript",
       });
       if (!target) return;
-      await vscode.workspace.fs.writeFile(target, Buffer.from(transcriptMarkdown(session.title, session.turns), "utf8"));
-      void vscode.window.showInformationMessage(`Exported Rostrum transcript to ${path.basename(target.fsPath)}.`);
+      const format = formatForPath(target.fsPath);
+      await vscode.workspace.fs.writeFile(
+        target,
+        Buffer.from(serializeTranscript(session, format), "utf8"),
+      );
+      void vscode.window.showInformationMessage(
+        `Exported Rostrum transcript as ${format === "json" ? "JSON" : "Markdown"} to ${path.basename(target.fsPath)}.`,
+      );
     }),
 
     vscode.commands.registerCommand("rostrum.pickAgent", async () => {
@@ -364,27 +371,6 @@ function normaliseEditPath(file: string): string {
   if (path.isAbsolute(file)) return path.normalize(file);
   const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
   return path.resolve(root, file);
-}
-
-function transcriptMarkdown(title: string, turns: Turn[]): string {
-  const parts = [`# ${title}`, ""];
-  for (const turn of turns) {
-    parts.push(`## ${turn.role === "user" ? "You" : "Agent"}`, "");
-    for (const block of turn.blocks) parts.push(...blockMarkdown(block));
-  }
-  return `${parts.join("\n").trimEnd()}\n`;
-}
-
-function blockMarkdown(block: Block): string[] {
-  switch (block.kind) {
-    case "text": return [block.text, ""];
-    case "reasoning": return ["<details><summary>Thinking</summary>", "", block.text, "", "</details>", ""];
-    case "tool": return [`> **${block.call.kind}** — ${block.call.title} (${block.call.status})`, block.call.output ? `> ${block.call.output.replace(/\n/g, "\n> ")}` : "", ""];
-    case "diff": return [`### Diff: \`${block.path}\``, "", "```diff", `- ${block.oldText.replace(/\n/g, "\n- ")}`, `+ ${block.newText.replace(/\n/g, "\n+ ")}`, "```", ""];
-    case "image": return [`_[Image attachment: ${block.mimeType}]_`, ""];
-    case "audio": return [`_[Audio attachment: ${block.mimeType}]_`, ""];
-    case "resource": return [block.uri ? `[${block.label}](${block.uri})` : `_${block.label}_`, block.text ?? "", ""];
-  }
 }
 
 function safeFileName(title: string): string {
