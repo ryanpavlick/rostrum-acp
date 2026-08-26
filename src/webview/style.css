@@ -353,3 +353,39 @@ h4.md-heading, h5.md-heading, h6.md-heading { font-size: 1em; }
 .tok-number { color: var(--vscode-debugTokenExpression-number, #b5cea8); }
 .tok-keyword { color: var(--vscode-debugTokenExpression-name, #569cd6); }
 .tok-type { color: var(--vscode-debugTokenExpression-boolean, #4ec9b0); }
+
+/* --- accessibility -------------------------------------------------------- */
+
+/* Announced by screen readers, invisible on screen. Not display:none, which
+   would remove it from the accessibility tree along with the pixels. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden; clip-path: inset(50%);
+  white-space: nowrap; border: 0;
+}
+
+/* Keyboard focus must always be visible, including on the session chips
+   where the theme's default outline sits on a rounded background. */
+:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+.session-chip:focus-visible { outline-offset: 2px; }
+
+/* --- tool rows ------------------------------------------------------------ */
+
+.tool-status {
+  margin-left: auto;
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.tool-section { margin: 6px 0 0; }
+.tool-section-label {
+  font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--vscode-descriptionForeground);
+  margin-bottom: 2px;
+}
+.tool-code { font-size: 0.9em; }

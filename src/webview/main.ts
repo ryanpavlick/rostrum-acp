@@ -79,20 +79,46 @@ const pendingHost = el("div", "pending-host");
 const queueHost = el("div", "queue-host");
 const attachHost = el("div", "attach-host");
 const composer = el("div", "composer");
-root.append(header, sessionBar, optionBar, log, planHost, pendingHost, queueHost, attachHost, composer);
+// Landmarks and a live region, so the panel is navigable and announced
+// rather than being an undifferentiated pile of divs.
+header.setAttribute("role", "toolbar");
+header.setAttribute("aria-label", "Rostrum session controls");
+sessionBar.setAttribute("role", "tablist");
+sessionBar.setAttribute("aria-label", "Live conversations");
+log.setAttribute("role", "log");
+log.setAttribute("aria-label", "Conversation");
+// Streaming tokens would be far too chatty to announce; `status` carries the
+// milestones instead.
+log.setAttribute("aria-live", "off");
+composer.setAttribute("role", "group");
+composer.setAttribute("aria-label", "Compose a prompt");
+
+/** Visually hidden, announced politely: busy transitions and errors. */
+const status = el("div", "sr-only");
+status.setAttribute("role", "status");
+status.setAttribute("aria-live", "polite");
+
+function announce(message: string): void {
+  status.textContent = message;
+}
+
+root.append(header, sessionBar, optionBar, log, planHost, pendingHost, queueHost, attachHost, composer, status);
 
 const agentSelect = el("select", "picker");
 agentSelect.onchange = () => post({ type: "selectAgent", agent: agentSelect.value });
 
 
 const newButton = el("button", "ghost", "New");
+newButton.type = "button";
 newButton.onclick = () => post({ type: "newSession" });
 
 const historyButton = el("button", "ghost", "History");
+historyButton.type = "button";
 historyButton.title = "Open a saved session";
 historyButton.onclick = () => post({ type: "pickSession" });
 
 const forkButton = el("button", "ghost", "Fork");
+forkButton.type = "button";
 forkButton.title = "Branch this conversation";
 forkButton.onclick = () => post({ type: "forkSession" });
 
@@ -103,23 +129,35 @@ header.append(agentSelect, newButton, historyButton, forkButton, usageLabel);
 const input = el("textarea", "input");
 input.rows = 3;
 input.placeholder = "Ask the agent…";
+input.setAttribute("aria-label", "Prompt");
 input.onkeydown = (event) => {
-  if (event.key === "Enter" && !event.shiftKey) {
+  // Enter sends; Shift+Enter is a newline. Ctrl/Cmd+Enter also sends, for
+  // people who have the opposite habit from another editor.
+  if (event.key === "Enter" && (!event.shiftKey || event.ctrlKey || event.metaKey)) {
     event.preventDefault();
     submitPrompt();
+    return;
+  }
+  if (event.key === "Escape" && state.busy) {
+    event.preventDefault();
+    post({ type: "cancel" });
   }
 };
 
 const sendButton = el("button", "primary", "Send");
+sendButton.type = "button";
 sendButton.onclick = () => submitPrompt();
 
 const stopButton = el("button", "danger", "Stop");
+stopButton.type = "button";
 stopButton.onclick = () => post({ type: "cancel" });
 
 const attachButton = el("button", "ghost", "Attach");
+attachButton.type = "button";
 attachButton.onclick = () => post({ type: "attach" });
 
 const queueButton = el("button", "ghost", "Queue");
+queueButton.type = "button";
 queueButton.title = "Run this after the current turn";
 queueButton.onclick = () => {
   const text = input.value.trim();
@@ -129,6 +167,7 @@ queueButton.onclick = () => {
 };
 
 const steerButton = el("button", "ghost", "Steer");
+steerButton.type = "button";
 steerButton.title = "Inject guidance into the running turn";
 steerButton.onclick = () => {
   const text = input.value.trim();
@@ -361,28 +400,46 @@ function renderResource(block: Extract<Block, { kind: "resource" }>): HTMLElemen
   return details;
 }
 
+const TOOL_STATUS_TEXT: Record<string, string> = {
+  pending: "pending",
+  in_progress: "running",
+  completed: "completed",
+  failed: "failed",
+};
+
 function renderTool(block: Extract<Block, { kind: "tool" }>): HTMLElement {
   const { call } = block;
   const details = el("details", call.subAgent ? "tool sub-agent" : "tool");
+  // A failed call is the one a user is looking for, so it opens itself.
+  details.open = call.status === "failed";
+
   const summary = el("summary");
+  const status = TOOL_STATUS_TEXT[call.status] ?? call.status;
+  const dot = el("span", `dot ${call.status}`);
+  // The dot carries meaning by colour alone, so name it for assistive tech.
+  dot.setAttribute("role", "img");
+  dot.setAttribute("aria-label", status);
   summary.append(
-    el("span", `dot ${call.status}`),
+    dot,
     el("span", "tool-kind", call.subAgent ? "sub-agent" : call.kind),
     el("span", "tool-title", call.title),
+    el("span", "tool-status", status),
   );
   details.append(summary);
 
   if (call.input !== undefined) {
-    details.append(el("pre", "code", JSON.stringify(call.input, null, 2)));
+    details.append(toolSection("Input", jsonText(call.input), "json"));
   }
   if (call.output) {
-    details.append(el("pre", "code", call.output));
+    details.append(toolSection("Output", call.output, ""));
   }
   if (call.locations?.length) {
     const locations = el("div", "tool-locations");
+    locations.setAttribute("aria-label", "Files this tool touched");
     for (const location of call.locations) {
       const label = location.line ? `${location.path}:${location.line}` : location.path;
       const button = el("button", "location-link", label);
+      button.type = "button";
       button.title = "Open location in the workspace";
       button.onclick = () => post({ type: "openDiff", path: location.path, line: location.line });
       locations.append(button);
@@ -390,6 +447,25 @@ function renderTool(block: Extract<Block, { kind: "tool" }>): HTMLElement {
     details.append(locations);
   }
   return details;
+}
+
+/** A labelled, copyable, highlighted chunk of tool input or output. */
+function toolSection(label: string, text: string, lang: string): HTMLElement {
+  const section = el("div", "tool-section");
+  const heading = el("div", "tool-section-label", label);
+  const block = renderCodeBlock(lang, text);
+  block.classList.add("tool-code");
+  section.append(heading, block);
+  return section;
+}
+
+function jsonText(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    // Cyclic or otherwise unserialisable input still has to show something.
+    return String(value);
+  }
 }
 
 function renderBlock(block: Block): HTMLElement {
@@ -489,16 +565,40 @@ function renderSessions(): void {
   }
   sessionBar.style.display = "";
 
-  for (const session of state.liveSessions) {
+  const chips: HTMLButtonElement[] = [];
+  state.liveSessions.forEach((session, index) => {
     const chip = el("button", `session-chip ${session.active ? "active" : ""}`);
+    chip.type = "button";
+    chip.setAttribute("role", "tab");
+    chip.setAttribute("aria-selected", String(session.active));
+    // Roving tabindex: one stop for the whole strip, arrows move within it.
+    chip.tabIndex = session.active ? 0 : -1;
+
     chip.append(el("span", `session-dot ${session.lifecycle}`));
     chip.append(el("span", "session-title", session.title));
     if (session.queued > 0) chip.append(el("span", "session-badge", String(session.queued)));
-    chip.title = `${session.agentKey} — ${LIFECYCLE_TEXT[session.lifecycle]}`;
-    chip.disabled = session.active;
+
+    const description = `${session.agentKey} — ${LIFECYCLE_TEXT[session.lifecycle]}`;
+    chip.title = description;
+    // The dot and the badge are visual; the label spells them out.
+    chip.setAttribute(
+      "aria-label",
+      `${session.title}, ${description}${session.queued > 0 ? `, ${session.queued} queued` : ""}`,
+    );
+
     chip.onclick = () => post({ type: "revealSession", controllerId: session.controllerId });
+    chip.onkeydown = (event) => {
+      const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+      if (step === 0) return;
+      event.preventDefault();
+      const next = chips[(index + step + chips.length) % chips.length];
+      next.focus();
+      next.click();
+    };
+
+    chips.push(chip);
     sessionBar.append(chip);
-  }
+  });
 }
 
 /**
@@ -620,12 +720,22 @@ function renderUsage(): void {
   usageLabel.title = `${state.usage.inputTokens} in / ${state.usage.outputTokens} out over ${state.usage.turns} turns`;
 }
 
+let lastAnnouncedBusy: boolean | undefined;
+
 function applyBusy(): void {
   // The composer stays live while busy so prompts can be queued or steered.
   stopButton.style.display = state.busy ? "" : "none";
   steerButton.style.display = state.busy ? "" : "none";
   queueButton.style.display = state.busy ? "" : "none";
   sendButton.textContent = state.busy ? "Queue" : "Send";
+  log.setAttribute("aria-busy", String(state.busy));
+
+  // Announce the transition, not every render, or the status region repeats
+  // itself on each token.
+  if (lastAnnouncedBusy !== state.busy) {
+    lastAnnouncedBusy = state.busy;
+    announce(state.busy ? "Agent is working." : "Agent finished responding.");
+  }
 }
 
 // --- pending requests -------------------------------------------------------
@@ -817,6 +927,8 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
     }
     case "error": {
       const banner = el("div", "error", message.message);
+      banner.setAttribute("role", "alert");
+      announce(message.message);
       log.append(banner);
       log.scrollTop = log.scrollHeight;
       break;
