@@ -188,9 +188,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
     this.disconnect(agentKey);
     await this.startAgent(agentKey, false);
-    if (!this.connections.get(agentKey)) return;
+    const connection = this.connections.get(agentKey);
+    if (!connection) return;
+
     if (sessionId) await this.loadSessionById(sessionId);
-    else await this.newSession();
+    // The old conversation may not be recoverable — an agent that cannot load
+    // or resume, or one whose session was never persisted because it had no
+    // turns yet. Restarting must still leave a usable session behind rather
+    // than an empty panel.
+    if (!this.active()) await this.newSession(connection);
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {

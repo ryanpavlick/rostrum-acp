@@ -315,6 +315,27 @@ const textOf = (turns) =>
   ok("agent switching is idempotent");
 }
 
+// --- restarting an agent always leaves a usable session ---------------------
+{
+  const { provider, agent } = await build();
+  await provider.startAgent("scripted");
+  assert.equal(provider.liveSessions().length, 1);
+
+  // Nothing has been said yet, so this session was never persisted and cannot
+  // be reloaded after the restart. The panel must not be left empty.
+  await provider.restartCurrentAgent();
+  assert.equal(provider.liveSessions().length, 1, "restart leaves exactly one live session");
+  assert.ok(provider.active(), "restart leaves a session on screen");
+  assert.equal(provider.active().readOnly, false, "and it is one that can be prompted");
+
+  const running = provider.handleMessage({ type: "prompt", text: "after restart" });
+  await tick();
+  assert.equal(provider.active().lifecycle, "running", "the restarted session accepts prompts");
+  agent.finish(provider.active().sessionId);
+  await running;
+  ok("restarting an agent leaves a usable session even when the old one cannot be reloaded");
+}
+
 // --- a misconfigured agent fails with an explanation ------------------------
 {
   const { provider, posted } = await build();
