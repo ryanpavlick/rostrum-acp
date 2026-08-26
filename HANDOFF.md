@@ -11,7 +11,7 @@ Multicoder’s documented differentiators are a local server that outlives VS Co
 - Package: `rostrum` / Rostrum ACP, currently `0.10.0`.
 - Repository: `https://github.com/ryanpavlick/rostrum` (private), branch `main`.
 - Production build: `npm run build`.
-- Full automated suite: `npm test` — currently green: 20 unit, 7 regression, 9 feature, 16 supervisor, 13 concurrency, 7 provider, and 1 ACP round-trip check.
+- Full automated suite: `npm test` — currently green: 20 unit, 7 regression, 9 feature, 16 supervisor, 13 concurrency, 9 provider, 10 sessions view, 7 export, 15 discovery, and 1 ACP round-trip check.
 - Package: `npx vsce package --no-dependencies`.
 - `test/mock-agent.py` is Python because an earlier sandbox suppressed Node processes spawned by another Node process. **That constraint no longer holds in the current environment** (verified: Node spawns Node, detached and piped, fine). The Python mock still works and is kept; new supervisor tests use a Node child (`test/echo-agent.mjs`) directly.
 
@@ -43,6 +43,20 @@ The `parked` agent map is gone; it was replaced, not extended.
 - Reattaching to a stream the supervisor had to truncate reports `droppedBytes`, and Rostrum tells the user the transcript has a hole rather than letting them infer it from a gap.
 - Commands: `rostrum.supervisorStatus`, `rostrum.showAgentLog`, `rostrum.stopSupervisor`.
 
+### 0.13 session/history UX — partly landed
+
+- The Sessions view is a unified two-level list: an "Active" group of live conversations above saved ones bucketed by age. Lifecycle drives icon and colour; a live conversation is never also listed as history. Live rows are addressed by controller id via `rostrum.revealSession`, which also reaches a read-only transcript.
+- The chat panel has a session switcher: one chip per live conversation, with status as colour plus tooltip, a pulse for "needs you", and a queue-depth badge. Hidden until there is more than one.
+- Export offers Markdown or JSON, chosen by file extension. Transcript serialisation moved to `src/extension/export.ts` (no `vscode` import, so it is directly testable). Markdown fences are now sized longer than any backtick run inside the content, so agent output containing code fences cannot break out of its own block.
+- Still to do here: time-period *filters* (the buckets exist, filtering does not), and richer agent-catalog sync UI.
+
+### 0.14 onboarding — mostly landed
+
+- `src/extension/discovery.ts` — PATH detection for ten known agents, `rostrum.detectAgents`, and schema validation for `rostrum.agents`.
+- Two agent shapes are distinguished and are not interchangeable: agents that speak ACP directly, and Claude Code / Codex, which do not answer an ACP handshake and must be configured to launch their ACP adapter instead.
+- Configuration is validated before launch, with actionable messages (non-array `args`, non-string `env`, missing `command`, a whole shell command line pasted into `command`). A command that is not on PATH is refused with that reason rather than hanging the handshake.
+- Still to do here: per-agent auth/settings UX.
+
 ## Important current limitations / risks
 
 1. **Nothing here has been validated against a live agent in a live VS Code window.** All of the above is headless. This is the single largest outstanding risk and the reason parity cannot yet be claimed.
@@ -54,11 +68,9 @@ The `parked` agent map is gone; it was replaced, not extended.
 
 ## Remaining parity roadmap
 
-1. **0.13 Session/history UX** — unified active/past list; lifecycle status colors in the tree; time-period filters; agent sync; load/continue/fork/delete; JSON + Markdown export. Start by carrying `liveSessions()` through `ViewState` and into `trees.ts`.
-2. **0.14 Onboarding** — PATH detection for common agents (Claude, Codex, Copilot, Gemini at minimum), schema validation, actionable configuration failures, per-agent auth/settings UX.
-3. **0.15 Transcript UX** — safe syntax-highlighted Markdown, Mermaid diagrams, KaTeX math, better tool rows/output, accessibility and keyboard navigation.
-4. **0.16 Change/workspace UX** — folder/flat changes switch, timeline filters, richer usage metrics (duration/tool calls), robust native diffs.
-5. **0.17–0.18 verification/release** — compatibility matrix across target agents and local/SSH/WSL/container workspaces; live VS Code UI smoke tests; reconnect chaos tests; packaging/signing/publishing materials.
+1. **0.15 Transcript UX** — safe syntax-highlighted Markdown, Mermaid diagrams, KaTeX math, better tool rows/output, accessibility and keyboard navigation.
+2. **0.16 Change/workspace UX** — folder/flat changes switch, timeline filters, richer usage metrics (duration/tool calls), robust native diffs.
+3. **0.17–0.18 verification/release** — compatibility matrix across target agents and local/SSH/WSL/container workspaces; live VS Code UI smoke tests; reconnect chaos tests; packaging/signing/publishing materials.
 
 ## Files to start with
 
@@ -93,5 +105,5 @@ Run `npm run typecheck` and `npm test` first; both should be green.
 
 Then either:
 
-- **(preferred) validate 0.11/0.12 against a live agent in a live VS Code window** — start two conversations on one agent, prompt both, switch between them, reload the window mid-turn, and confirm the supervisor reattach and the background-approval notification behave as the headless tests claim; or
-- **start 0.13** by carrying `ChatViewProvider.liveSessions()` through `ViewState` into the webview and `trees.ts`, so lifecycle state is visible in the sidebar rather than only in the picker.
+- **(preferred) validate 0.11–0.14 against live agents in a live VS Code window.** Everything below is headless. Run `rostrum.detectAgents` on a machine with a real agent installed, start two conversations on one agent, prompt both, switch between them, reload the window mid-turn, and confirm the supervisor reattach, the session switcher and the background-approval notification behave as the headless tests claim; or
+- **continue 0.15 (transcript UX)**, which is the largest remaining user-visible gap. Note the constraint: agent output is untrusted and the webview currently renders it with `textContent` only. Any Markdown rendering must build DOM nodes directly — never `innerHTML` — and sanitise link hrefs. Mermaid and KaTeX would each need a bundled library under a CSP that forbids external resources; weigh that cost before committing to them.
