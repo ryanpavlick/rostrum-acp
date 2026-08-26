@@ -163,6 +163,11 @@ export class Session implements Client {
     this.permissionMode = mode;
   }
 
+  /** The mode auto-approval decisions are currently made under. */
+  get currentPermissionMode(): PermissionMode {
+    return this.permissionMode;
+  }
+
   /** Record a user turn locally; the agent echoes nothing back for prompts. */
   addUserTurn(text: string, attachments: Block[] = []): void {
     const turn: Turn = {

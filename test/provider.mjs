@@ -43,6 +43,19 @@ class ScriptedAgent {
     this.cancelled = [];
     this.loaded = [];
     this.supportsLoad = false;
+    this.optionCalls = [];
+    this.configOptions = [
+      {
+        id: "model",
+        name: "Model",
+        type: "select",
+        currentValue: "default",
+        options: [
+          { value: "default", name: "Default" },
+          { value: "fast", name: "Fast" },
+        ],
+      },
+    ];
   }
 
   async initialize() {
@@ -63,7 +76,18 @@ class ScriptedAgent {
 
   async newSession() {
     this.nextSessionId += 1;
-    return { sessionId: `session-${this.nextSessionId}` };
+    return {
+      sessionId: `session-${this.nextSessionId}`,
+      configOptions: this.configOptions.map((option) => ({ ...option })),
+    };
+  }
+
+  async setSessionConfigOption({ configId, value }) {
+    const option = this.configOptions.find((entry) => entry.id === configId);
+    if (!option) throw new Error(`no such option ${configId}`);
+    option.currentValue = value;
+    this.optionCalls.push([configId, value]);
+    return { configOptions: this.configOptions.map((entry) => ({ ...entry })) };
   }
 
   /** Resolves only when the test calls `finish(sessionId)`. */
@@ -151,6 +175,8 @@ async function build(previous) {
   // A reload keeps the same storage and workspace state; only the extension
   // host object graph is new.
   const workspaceState = previous?.workspaceState ?? new Map();
+  // Per-agent preferences live in globalState, so they must outlive a reload.
+  const globalState = previous?.globalState ?? new Map();
   const context = {
     extensionUri: { fsPath: root },
     asAbsolutePath: (p) => path.join(root, p),
@@ -158,6 +184,10 @@ async function build(previous) {
     workspaceState: {
       get: (key) => workspaceState.get(key),
       update: (key, value) => { workspaceState.set(key, value); return Promise.resolve(); },
+    },
+    globalState: {
+      get: (key) => globalState.get(key),
+      update: (key, value) => { globalState.set(key, value); return Promise.resolve(); },
     },
   };
   const posted = [];
@@ -175,7 +205,7 @@ async function build(previous) {
     () => {},
   );
   provider.resolveWebviewView(fakeView(posted));
-  return { provider, agent, store, posted, workspaceState, context, root };
+  return { provider, agent, store, posted, workspaceState, globalState, context, root };
 }
 
 const textOf = (turns) =>
@@ -386,6 +416,74 @@ const textOf = (turns) =>
   reloaded.agent.finish("session-1");
   await running;
   ok("a restored conversation accepts new prompts");
+}
+
+// --- agent preferences outlive a session ------------------------------------
+{
+  const first = await build();
+  await first.provider.startAgent("scripted");
+  await first.provider.handleMessage({
+    type: "setConfigOption",
+    id: "model",
+    value: "fast",
+  });
+  assert.deepEqual(first.agent.optionCalls, [["model", "fast"]]);
+
+  // A brand new conversation on the same agent must start where the user left
+  // off, not back at the agent's default.
+  first.agent.optionCalls.length = 0;
+  first.agent.configOptions[0].currentValue = "default";
+  await first.provider.newSession();
+  assert.deepEqual(
+    first.agent.optionCalls,
+    [["model", "fast"]],
+    "the remembered choice is re-applied to the new session",
+  );
+
+  // And re-applying a value the agent already holds is not worth a round trip.
+  first.agent.optionCalls.length = 0;
+  await first.provider.newSession();
+  assert.deepEqual(first.agent.optionCalls, [], "no redundant round trip");
+  ok("a config choice is remembered for the agent and restored on later sessions");
+
+  // It must survive a reload too, since it lives in storage rather than state.
+  first.provider.dispose();
+  const reloaded = await build(first);
+  reloaded.agent.configOptions[0].currentValue = "default";
+  await reloaded.provider.startAgent("scripted");
+  assert.deepEqual(reloaded.agent.optionCalls, [["model", "fast"]]);
+  ok("a remembered config choice survives a window reload");
+}
+
+// --- permission mode is per agent -------------------------------------------
+{
+  const { provider } = await build();
+  stub.config.agents = {
+    scripted: { command: process.execPath },
+    other: { command: process.execPath },
+  };
+  stub.config.permissionMode = "ask";
+
+  await provider.startAgent("scripted");
+  await provider.setAgentPermissionMode("scripted", "yolo");
+  await provider.startAgent("other");
+
+  // Reaching into the controllers is the only way to observe the mode the
+  // ACP session was actually built with.
+  const modeOf = (agentKey) => {
+    const controller = [...provider.liveSessions()]
+      .map((s) => s.controllerId)
+      .map((id) => provider.sessions.get(id))
+      .find((c) => c.agentKey === agentKey);
+    return controller.session.currentPermissionMode;
+  };
+  assert.equal(modeOf("scripted"), "yolo", "the agent's own mode applies to its live session");
+  assert.equal(modeOf("other"), "ask", "another agent still follows the global setting");
+  ok("permission mode is set per agent and applies to that agent's live sessions");
+
+  await provider.setAgentPermissionMode("scripted", undefined);
+  assert.equal(modeOf("scripted"), "ask", "clearing returns the agent to the global setting");
+  ok("an agent can be returned to the global permission mode");
 }
 
 // --- concurrent approvals are all reachable ---------------------------------

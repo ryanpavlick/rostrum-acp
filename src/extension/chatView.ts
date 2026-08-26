@@ -26,6 +26,7 @@ import type { UsageTracker } from "./usage.js";
 import { NO_CAPABILITIES } from "./capabilities.js";
 import { checkCommandExists, nodeProbe, validateAgentDefinition } from "./discovery.js";
 import { mcpServersFromConfig, type McpServerDefinition } from "./mcp.js";
+import { Preferences } from "./preferences.js";
 
 /**
  * The chat sidebar.
@@ -55,6 +56,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private readonly usageTracker: UsageTracker,
     private readonly onTurnsChanged: (turns: Turn[]) => void,
     private readonly onSessionsChanged: () => void,
+    private readonly preferences: Preferences = new Preferences(context.globalState),
   ) {}
 
   // --- active controller ---------------------------------------------------
@@ -220,8 +222,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     return this.config().get<Record<string, AgentDefinition>>("agents") ?? {};
   }
 
-  private permissionMode(): PermissionMode {
-    return this.config().get<PermissionMode>("permissionMode") ?? "ask";
+  /** The agent's own mode when it has one, else the global default. */
+  private permissionMode(agentKey?: string): PermissionMode {
+    const fallback = this.config().get<PermissionMode>("permissionMode") ?? "ask";
+    return agentKey ? this.preferences.permissionMode(agentKey, fallback) : fallback;
+  }
+
+  /** Change the permission mode for one agent, live sessions included. */
+  async setAgentPermissionMode(agentKey: string, mode: PermissionMode | undefined): Promise<void> {
+    await this.preferences.setPermissionMode(agentKey, mode);
+    const effective = this.permissionMode(agentKey);
+    for (const controller of this.sessions.values()) {
+      if (controller.agentKey === agentKey) controller.session.setPermissionMode(effective);
+    }
+    await this.pushState();
+  }
+
+  /** Agents this window could set a mode on, for the command's picker. */
+  knownAgents(): string[] {
+    return Object.keys(this.agentDefinitions());
+  }
+
+  currentAgent(): string | null {
+    return this.currentAgentKey;
   }
 
   private mcpServers(connection: AgentConnection) {
@@ -588,7 +611,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           this.onFileEdited(edit, controller.sessionId ?? "unknown", controller.agentKey),
       },
       this.workspaceRoots(),
-      this.permissionMode(),
+      this.permissionMode(connection.agentKey),
     );
 
     controller = new ManagedSession(connection, session, (changed) => {
@@ -655,6 +678,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       controller.session.modes = modes;
       controller.session.currentMode = response.modes?.currentModeId ?? null;
       controller.configOptions = mapConfigOptions(response.configOptions);
+      await this.applySavedOptions(controller);
       await this.activate(controller);
     } catch (error) {
       this.removeController(controller);
@@ -686,14 +710,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   /** Fetch every page before replacing the stored index, never a partial result. */
   private async syncSessionCatalog(connection: AgentConnection): Promise<void> {
-    const listSessions = connection.agent.listSessions;
-    if (!listSessions || !connection.capabilities.listSessions) return;
+    const agent = connection.agent;
+    if (!agent.listSessions || !connection.capabilities.listSessions) return;
 
     const discovered: SessionMeta[] = [];
     const seenCursors = new Set<string>();
     let cursor: string | null | undefined;
     for (let page = 0; page < 100; page += 1) {
-      const response = await listSessions({
+      const response = await agent.listSessions({
         cwd: this.workspaceRoot(),
         ...(cursor ? { cursor } : {}),
       });
@@ -920,14 +944,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     id: string,
     value: string | boolean,
   ): Promise<void> {
-    const setter = controller.connection.agent.setSessionConfigOption;
-    if (!setter || !controller.sessionId) {
+    const agent = controller.connection.agent;
+    if (!agent.setSessionConfigOption || !controller.sessionId) {
       this.post({ type: "error", message: "This agent does not expose session options." });
       return;
     }
     try {
       // The request field is `configId`, and the value type follows the option.
-      const response = await setter({
+      // Called through the object: a detached method reference would lose its
+      // receiver on any agent whose methods live on a prototype.
+      const response = await agent.setSessionConfigOption({
         sessionId: controller.sessionId,
         configId: id,
         value,
@@ -940,6 +966,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         : controller.configOptions.map((option) =>
             option.id === id ? { ...option, currentValue: value } : option,
           );
+      // Remember it for this agent, so the next session starts where the user
+      // left off rather than back at the agent's default.
+      await this.preferences.setConfigOption(controller.agentKey, id, value);
       if (this.isActive(controller)) {
         this.post({ type: "configOptions", options: controller.configOptions });
       }
@@ -1211,15 +1240,48 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (response?.configOptions) controller.configOptions = mapConfigOptions(response.configOptions);
   }
 
+  /**
+   * Put this agent's remembered choices back on a fresh session.
+   *
+   * Only the ones that actually differ are sent: re-applying a value the agent
+   * already holds costs a round trip and, on some agents, resets dependent
+   * options. Failures are logged rather than surfaced — the session is usable
+   * at the agent's own defaults, which is not worth an error banner.
+   */
+  private async applySavedOptions(controller: ManagedSession): Promise<void> {
+    const agent = controller.connection.agent;
+    const sessionId = controller.sessionId;
+    if (!agent.setSessionConfigOption || !sessionId) return;
+
+    for (const { id, value } of this.preferences.pendingOptions(
+      controller.agentKey,
+      controller.configOptions,
+    )) {
+      try {
+        const response = await agent.setSessionConfigOption({ sessionId, configId: id, value } as never);
+        const returned = mapConfigOptions(response?.configOptions);
+        controller.configOptions = returned.length
+          ? returned
+          : controller.configOptions.map((option) =>
+              option.id === id ? { ...option, currentValue: value } : option,
+            );
+      } catch (error) {
+        this.output.appendLine(
+          `[${controller.agentKey}] could not restore ${id}: ${String(error)}`,
+        );
+      }
+    }
+  }
+
   /** Branch the current conversation, leaving the original untouched. */
   private async forkSession(controller: ManagedSession): Promise<void> {
-    const fork = controller.connection.agent.unstable_forkSession;
-    if (!fork || !controller.sessionId) {
+    const agent = controller.connection.agent;
+    if (!agent.unstable_forkSession || !controller.sessionId) {
       this.post({ type: "error", message: "This agent does not support forking sessions." });
       return;
     }
     try {
-      const forked = await fork({
+      const forked = await agent.unstable_forkSession({
         sessionId: controller.sessionId,
         cwd: this.workspaceRoot(),
         ...this.additionalDirectories(controller.connection),

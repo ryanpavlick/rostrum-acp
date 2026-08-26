@@ -210,6 +210,51 @@ export function activate(context: vscode.ExtensionContext): void {
       timeline.refresh();
     }),
 
+    vscode.commands.registerCommand("rostrum.setPermissionMode", async () => {
+      const agents = chat.knownAgents();
+      if (agents.length === 0) {
+        void vscode.window.showWarningMessage("Configure an agent first.");
+        return;
+      }
+      const current = chat.currentAgent();
+      const agentKey =
+        agents.length === 1
+          ? agents[0]
+          : await vscode.window.showQuickPick(agents, {
+              placeHolder: "Set the permission mode for which agent?",
+            });
+      if (!agentKey) return;
+
+      const picked = await vscode.window.showQuickPick(
+        [
+          { label: "Ask every time", mode: "ask" as const },
+          { label: "Accept file edits", detail: "Still asks for anything else", mode: "acceptEdits" as const },
+          { label: "Accept everything", detail: "No prompts at all — use with care", mode: "yolo" as const },
+          { label: "Follow the global setting", detail: "rostrum.permissionMode", mode: undefined },
+        ],
+        { placeHolder: `Permission mode for ${agentKey}${agentKey === current ? " (current agent)" : ""}` },
+      );
+      if (!picked) return;
+      await chat.setAgentPermissionMode(agentKey, picked.mode);
+      void vscode.window.showInformationMessage(
+        picked.mode
+          ? `${agentKey} will ${picked.mode === "ask" ? "ask every time" : picked.mode === "acceptEdits" ? "accept file edits automatically" : "accept everything automatically"}.`
+          : `${agentKey} now follows the global permission mode.`,
+      );
+    }),
+
+    vscode.commands.registerCommand("rostrum.filterSessions", async () => {
+      const filter = await pickTimelineFilter(sessions.currentFilter, await sessions.agents());
+      if (!filter) return;
+      sessions.setFilter(filter);
+      void vscode.commands.executeCommand("setContext", "rostrum.sessionsFiltered", isFiltered(filter));
+    }),
+
+    vscode.commands.registerCommand("rostrum.clearSessionFilter", () => {
+      sessions.setFilter({ window: "all" });
+      void vscode.commands.executeCommand("setContext", "rostrum.sessionsFiltered", false);
+    }),
+
     vscode.commands.registerCommand("rostrum.changesAsTree", () => applyChangesMode(true)),
     vscode.commands.registerCommand("rostrum.changesAsList", () => applyChangesMode(false)),
 
@@ -466,7 +511,7 @@ async function pickTimelineFilter(
       description: entry.id === current.window ? "current" : undefined,
       id: entry.id,
     })),
-    { placeHolder: "Show edits from when?" },
+    { placeHolder: "Show items from when?" },
   );
   if (!window) return undefined;
 
@@ -478,7 +523,7 @@ async function pickTimelineFilter(
       { label: "All agents", key: undefined as string | undefined },
       ...agents.map((agentKey) => ({ label: agentKey, key: agentKey })),
     ],
-    { placeHolder: "Show edits from which agent?" },
+    { placeHolder: "Show items from which agent?" },
   );
   if (!agent) return undefined;
 

@@ -13,6 +13,7 @@ import {
   describeFilter,
   filterEdits,
   isFiltered,
+  windowRange,
   type TimelineFilter,
 } from "./timeline.js";
 import type { SessionStore } from "./store.js";
@@ -73,8 +74,27 @@ export class SessionsTree implements vscode.TreeDataProvider<SessionNode> {
   readonly onDidChangeTreeData = this.changed.event;
 
   private live: () => LiveSession[] = () => [];
+  private filter: TimelineFilter = { ...DEFAULT_FILTER };
 
   constructor(private readonly store: SessionStore) {}
+
+  get currentFilter(): TimelineFilter {
+    return this.filter;
+  }
+
+  setFilter(filter: TimelineFilter): void {
+    this.filter = filter;
+    this.refresh();
+  }
+
+  /** Agents that appear anywhere in the list, for the filter picker. */
+  async agents(): Promise<string[]> {
+    const keys = [
+      ...this.live().map((session) => session.agentKey),
+      ...(await this.store.list()).map((session) => session.agentKey),
+    ];
+    return [...new Set(keys)].sort();
+  }
 
   /**
    * Point the tree at the chat provider's live conversations.
@@ -149,7 +169,18 @@ export class SessionsTree implements vscode.TreeDataProvider<SessionNode> {
   async getChildren(node?: SessionNode): Promise<SessionNode[]> {
     if (node) return node.type === "group" ? node.children : [];
 
-    const live = this.live();
+    const now = Date.now();
+    const { from, to } = windowRange(this.filter.window, now);
+    const matches = (session: { agentKey: string; updatedAt: number }) =>
+      session.updatedAt >= from &&
+      session.updatedAt < to &&
+      (!this.filter.agentKey || session.agentKey === this.filter.agentKey);
+
+    const allLive = this.live();
+    // The conversation on screen always stays visible: hiding what the user is
+    // currently looking at because of a filter would be worse than useless.
+    const live = allLive.filter((session) => session.active || matches(session));
+
     const groups: SessionNode[] = [];
     if (live.length > 0) {
       groups.push({
@@ -161,10 +192,11 @@ export class SessionsTree implements vscode.TreeDataProvider<SessionNode> {
     }
 
     // A conversation that is on screen must not also appear as history.
-    const liveIds = new Set(live.flatMap((session) => (session.sessionId ? [session.sessionId] : [])));
-    const stored = (await this.store.list()).filter((session) => !liveIds.has(session.sessionId));
+    const liveIds = new Set(allLive.flatMap((session) => (session.sessionId ? [session.sessionId] : [])));
+    const stored = (await this.store.list()).filter(
+      (session) => !liveIds.has(session.sessionId) && matches(session),
+    );
 
-    const now = Date.now();
     const buckets = new Map<string, { label: string; order: number; children: SessionNode[] }>();
     for (const session of stored) {
       const bucket = period(session.updatedAt, now);

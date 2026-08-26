@@ -153,6 +153,44 @@ const everyId = [
 assert.equal(new Set(everyId).size, everyId.length, "tree item ids must be unique");
 ok("live and saved rows never collide on a tree item id");
 
+// --- filters ------------------------------------------------------------------
+tree.setFilter({ window: "today" });
+const todayOnly = await tree.getChildren();
+assert.deepEqual(
+  todayOnly.map((group) => group.label),
+  ["Active", "Today"],
+  "a time filter drops the buckets outside the window",
+);
+
+tree.setFilter({ window: "all", agentKey: "claude" });
+const claudeOnly = await tree.getChildren();
+const claudeActive = claudeOnly.find((group) => group.label === "Active");
+assert.deepEqual(
+  claudeActive.children.map((node) => node.session.title).sort(),
+  ["Currently running", "Needs a decision", "Old transcript"].sort(),
+  "the conversation on screen stays visible even when the filter excludes it",
+);
+assert.equal(
+  claudeOnly.some((group) => group.label !== "Active"),
+  false,
+  "no saved qwen conversation survives an agent filter for claude",
+);
+ok("sessions can be filtered by time window and by agent");
+
+tree.setFilter({ window: "all", agentKey: "nobody" });
+const none = await tree.getChildren();
+assert.deepEqual(
+  none.flatMap((group) => group.children.map((node) => node.session.title)),
+  ["Currently running"],
+  "only the on-screen conversation survives a filter that matches nothing",
+);
+ok("a filter matching nothing still leaves the visible conversation reachable");
+
+assert.deepEqual((await tree.agents()).sort(), ["claude", "qwen"]);
+ok("the agents present across live and saved sessions drive the filter picker");
+
+tree.setFilter({ window: "all" });
+
 // --- no live sessions ---------------------------------------------------------
 tree.setLiveSource(() => []);
 const quiet = await tree.getChildren();
