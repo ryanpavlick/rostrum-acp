@@ -10,6 +10,9 @@ import type {
   ViewState,
 } from "../shared/protocol.js";
 
+import { parseMarkdown, type Inline, type MdNode } from "./markdown.js";
+import { highlight } from "./highlight.js";
+
 declare function acquireVsCodeApi(): { postMessage(message: ViewMessage): void };
 const vscode = acquireVsCodeApi();
 
@@ -182,32 +185,142 @@ function submitPrompt(): void {
 // --- rendering --------------------------------------------------------------
 
 /**
- * Minimal markdown: fenced code blocks become <pre>, everything else is
- * paragraphs. Deliberately not a full parser — this text is untrusted.
+ * Render agent text as Markdown.
+ *
+ * Every node here is built with `createElement` and filled with `textContent`.
+ * Agent output is untrusted, so `innerHTML` must never appear in this file:
+ * the parser hands back a tree precisely so nothing has to be turned into
+ * markup text on the way to the DOM. Link targets are already restricted to
+ * non-executable schemes by the parser.
  */
 function renderText(text: string): HTMLElement {
   const wrap = el("div", "text");
-  const segments = text.split(/```/);
+  for (const node of parseMarkdown(text)) wrap.append(renderMdNode(node));
+  return wrap;
+}
 
-  segments.forEach((segment, index) => {
-    if (!segment) return;
-    if (index % 2 === 1) {
-      const pre = el("pre", "code");
-      // Drop a leading language tag, keep the body verbatim.
-      pre.textContent = segment.replace(/^[a-zA-Z0-9_-]*\n/, "");
-      const copy = el("button", "copy", "Copy");
-      copy.onclick = () => void navigator.clipboard.writeText(pre.textContent ?? "");
-      const holder = el("div", "code-wrap");
-      holder.append(copy, pre);
-      wrap.append(holder);
-    } else {
-      for (const paragraph of segment.split(/\n{2,}/)) {
-        if (paragraph.trim()) wrap.append(el("p", undefined, paragraph.trim()));
+function renderMdNode(node: MdNode): HTMLElement {
+  switch (node.type) {
+    case "heading": {
+      const tag = `h${Math.min(6, Math.max(1, node.level))}` as "h1";
+      const heading = el(tag, "md-heading");
+      appendInline(heading, node.children);
+      return heading;
+    }
+    case "paragraph": {
+      const paragraph = el("p");
+      appendInline(paragraph, node.children);
+      return paragraph;
+    }
+    case "code":
+      return renderCodeBlock(node.lang, node.text);
+    case "hr":
+      return el("hr", "md-rule");
+    case "blockquote": {
+      const quote = el("blockquote", "md-quote");
+      for (const child of node.children) quote.append(renderMdNode(child));
+      return quote;
+    }
+    case "list": {
+      const list = el(node.ordered ? "ol" : "ul", "md-list");
+      for (const item of node.items) {
+        const entry = el("li");
+        for (const child of item) entry.append(renderMdNode(child));
+        list.append(entry);
+      }
+      return list;
+    }
+    case "table": {
+      const table = el("table", "md-table");
+      const head = el("thead");
+      const headRow = el("tr");
+      for (const cell of node.header) {
+        const th = el("th");
+        appendInline(th, cell);
+        headRow.append(th);
+      }
+      head.append(headRow);
+      const body = el("tbody");
+      for (const row of node.rows) {
+        const tr = el("tr");
+        for (const cell of row) {
+          const td = el("td");
+          appendInline(td, cell);
+          tr.append(td);
+        }
+        body.append(tr);
+      }
+      table.append(head, body);
+      // Wide tables scroll inside themselves rather than the whole panel.
+      const scroller = el("div", "md-table-wrap");
+      scroller.append(table);
+      return scroller;
+    }
+  }
+}
+
+function appendInline(host: HTMLElement, nodes: Inline[]): void {
+  for (const node of nodes) {
+    switch (node.type) {
+      case "text":
+        host.append(document.createTextNode(node.text));
+        break;
+      case "code":
+        host.append(el("code", "md-code", node.text));
+        break;
+      case "strong":
+        host.append(wrapInline("strong", node.children));
+        break;
+      case "em":
+        host.append(wrapInline("em", node.children));
+        break;
+      case "strike":
+        host.append(wrapInline("s", node.children));
+        break;
+      case "link": {
+        const anchor = el("a", "md-link");
+        anchor.href = node.href;
+        anchor.title = node.href;
+        // Untrusted destination: never let it reach back into this window.
+        anchor.rel = "noopener noreferrer";
+        appendInline(anchor, node.children);
+        host.append(anchor);
+        break;
       }
     }
-  });
+  }
+}
 
-  return wrap;
+function wrapInline(tag: "strong" | "em" | "s", children: Inline[]): HTMLElement {
+  const node = el(tag);
+  appendInline(node, children);
+  return node;
+}
+
+function renderCodeBlock(lang: string, text: string): HTMLElement {
+  const holder = el("div", "code-wrap");
+  const pre = el("pre", "code");
+
+  const tokens = highlight(text, lang);
+  for (const token of tokens) {
+    if (token.kind === "plain") pre.append(document.createTextNode(token.text));
+    else pre.append(el("span", `tok-${token.kind}`, token.text));
+  }
+
+  const label = el("span", "code-lang", lang || "text");
+  const copy = el("button", "copy", "Copy");
+  copy.type = "button";
+  copy.setAttribute("aria-label", `Copy ${lang || "code"} block`);
+  copy.onclick = () => {
+    void navigator.clipboard.writeText(text);
+    copy.textContent = "Copied";
+    setTimeout(() => (copy.textContent = "Copy"), 1200);
+  };
+
+  const bar = el("div", "code-bar");
+  bar.append(label, copy);
+  holder.append(bar, pre);
+  return holder;
 }
 
 function renderDiff(block: Extract<Block, { kind: "diff" }>): HTMLElement {

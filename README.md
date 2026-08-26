@@ -1,65 +1,291 @@
 # Rostrum ACP
 
-One chat UI for every Agent Client Protocol (ACP) coding agent.
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![VS Code](https://img.shields.io/badge/VS%20Code-1.104%2B-007ACC?logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com/)
 
-Rostrum runs any ACP-compatible coding agent as a local subprocess and talks JSON-RPC over stdio. It is built on the official Apache-2.0 `@agentclientprotocol/sdk`.
+**One VS Code workspace for every [Agent Client Protocol (ACP)](https://agentclientprotocol.com/) coding agent.**
 
-## Features
+Rostrum ACP is an open-source VS Code extension that runs ACP-compatible coding agents locally, gives them a shared chat interface, and keeps their work visible: streaming responses, reasoning, tool calls, permissions, plans, edits, diffs, session history, and usage information.
 
-- Streams agent text, reasoning ("thinking") blocks, tool calls with status, and file diffs into a sidebar chat.
-- Handles permission requests (allow/deny) with three modes: ask, acceptEdits, yolo.
-- Renders structured question prompts from agents that use them, and returns the answers correctly. Specifically supports Qwen Code's `ask_user_question`, whose payload arrives in vendor `_meta` fields.
-- Session transcripts persist to disk; the Sessions view merges local transcripts with the agent's cursor-paginated ACP session catalog.
-- A Changes view lists files the agent edited.
+Bring the agent you already use—such as Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Qwen Code, OpenCode, Hermes, or another ACP-compatible implementation—and use it from one consistent UI. Rostrum communicates with agents through JSON-RPC over standard input/output using the official [`@agentclientprotocol/sdk`](https://www.npmjs.com/package/@agentclientprotocol/sdk).
 
-- Installs agents from the [ACP registry](https://agentclientprotocol.com/get-started/registry): 39 agents, via npx, uvx, or a checksum-verified platform binary.
-- Reopens the last active workspace session automatically. Past conversations use `session/load`, then `session/resume`, then a clearly read-only saved-transcript fallback.
-- Exports any saved transcript to Markdown from the Sessions view.
-- Forks sessions on agents that advertise it.
-- Tracks token usage per agent in a Usage Stats view.
-- Records a durable per-file edit history: which session and agent last touched each file, surviving reloads.
-- Flags sub-agent delegation calls distinctly in the transcript.
-- Runs on the remote host in SSH, WSL, and container workspaces (`extensionKind: workspace`), so the agent executes where your code is; multi-root folders are passed to agents that advertise ACP additional-directory support.
+> [!IMPORTANT]
+> Agents can read files and run commands in your workspace. Rostrum intentionally does not support untrusted workspaces. Review permission requests carefully and only configure agents you trust.
 
-The UI only offers what the connected agent advertises: optional ACP methods are capability-gated, so nothing is shown that would fail if clicked.
+## How it works
 
-Also supported: agent-driven session options (model, reasoning effort, and anything else an agent exposes), prompt queueing and mid-turn steering, file/image/audio attachments, rich ACP media and resource output, slash-command completion, agent plan/todo rendering, ACP elicitation, agent-run terminals, MCP servers, and optional agent authentication.
+1. **Choose an agent.** Rostrum detects several common CLIs on your `PATH`, can install agents from the [ACP registry](https://agentclientprotocol.com/get-started/registry), and accepts any hand-written ACP process definition.
+2. **Rostrum launches it beside your code.** The agent remains a subprocess in your environment, using your account, credentials, model configuration, and workspace. In VS Code remote windows it runs on the remote workspace host.
+3. **Work from a consistent interface.** ACP lets Rostrum translate the common parts—prompts, streaming output, permissions, sessions, and edits—into one VS Code experience, while capability negotiation preserves each agent’s unique features.
 
-## Layout
+## Why Rostrum
 
-The chat panel docks in the **secondary sidebar** (right-hand panel), and the activity bar holds five views: Sessions, Outline, Changes, Timeline, and Usage Stats. Outline lets you jump to any turn or tool call in a long conversation; Timeline is a cross-file chronological log of every agent edit.
+Rostrum is for developers who want the freedom to select the best coding agent for a task without giving up a coherent editor workflow. It is deliberately protocol-first: agent-specific features appear when supported, and unavailable operations are disabled rather than guessed at. That makes it practical to mix native ACP agents with adapter-backed agents in the same project.
 
-## Configuration
+| If you need… | Rostrum provides… |
+| --- | --- |
+| Agent choice | ACP-native and adapter-backed agents in one VS Code UI. |
+| Visibility | Reasoning, tool calls, plans, edits, diffs, session outline, and history. |
+| Control | Interactive permissions, configurable approval modes, and capability-gated actions. |
+| Continuity | Persisted transcripts, recovery/load/resume paths, session export, and historical edit snapshots. |
+| Locality | Processes run in the workspace environment, including SSH, WSL, and containers. |
 
-Configuration is under the `rostrum.agents` setting: a map of display name to `{ command, args, env, cwd, mcpServers? }`. Agent-specific MCP servers override same-named entries in `rostrum.mcpServers`; global entries apply to every agent. MCP values can be stdio (`{ command, args, env }`) or capability-gated HTTP/SSE (`{ type, url, headers? }`).
+## What you get
 
-```json
+- A dedicated chat view in VS Code’s secondary sidebar, plus Sessions, Outline, Changes, Timeline, and Usage Stats views in the activity bar.
+- Streaming agent messages, reasoning blocks, rich media/resources, tool calls and their status, plans/todos, and sub-agent delegation indicators.
+- Interactive permission prompts with `ask`, `acceptEdits`, and `yolo` modes; structured agent questions and ACP elicitation are shown in the UI instead of being silently answered.
+- Persistent transcripts: reopen the most recent workspace session, browse agent-provided and local history, load/resume conversations, fork when the agent supports it, delete saved sessions, and export transcripts as Markdown.
+- Durable edit tracking, including changed files, a cross-file timeline, historical snapshots, and native VS Code diffs.
+- Agent capabilities are negotiated at runtime. Rostrum only exposes optional actions—such as forking, slash commands, session settings, attachments, or MCP—that the connected agent advertises.
+- Prompt queueing, mid-turn steering, text/image/audio attachments, slash-command completion, configurable session options, and token-usage reporting where supported by the agent.
+- Global or agent-specific MCP server configuration, with capability-gated stdio, HTTP, and SSE transports.
+- Agent discovery for common locally installed CLIs, registry-based agent installation, and actionable validation for malformed agent definitions.
+- Workspace-host execution for local, SSH, WSL, and dev-container workspaces, so the agent runs beside the code it is changing. Agents that support ACP additional directories can receive multi-root workspaces.
+
+## Requirements
+
+- VS Code **1.104 or later**.
+- A trusted, opened folder or workspace. Rostrum does not activate in untrusted workspaces.
+- At least one ACP-compatible agent. The agent must be installed and authenticated according to its own documentation, unless you install it through Rostrum’s agent registry flow.
+- Node.js only if your chosen agent requires it (for example, an `npx`-launched adapter). Rostrum itself is distributed as a VS Code extension.
+
+## Install
+
+### From a VSIX package
+
+Download or build a `.vsix`, then install it with either VS Code’s **Extensions: Install from VSIX...** command or the CLI:
+
+```bash
+code --install-extension rostrum-<version>.vsix
+```
+
+To build a package from this checkout:
+
+```bash
+npm ci
+npm run build
+npx vsce package --no-dependencies
+```
+
+### From source for development
+
+```bash
+git clone https://github.com/rostrum-ai/rostrum.git
+cd rostrum
+npm ci
+npm run build
+```
+
+Open the folder in VS Code and press `F5` to launch an Extension Development Host. Use `npm run watch` during UI or extension development.
+
+## Quick start
+
+1. Open a trusted project folder in VS Code.
+2. Open the **Rostrum** view in the activity bar or the **Rostrum Chat** view in the secondary sidebar.
+3. Select **Rostrum: Select Agent**. Rostrum can discover common CLIs on your `PATH`, or use **Rostrum: Install Agent from Registry** to choose an agent from the ACP registry.
+4. If your agent is not already configured, add it to `rostrum.agents` as shown below.
+5. Run **Rostrum: New Session**, choose the agent, and send a prompt.
+6. Approve or deny permission requests as appropriate. Use the Changes and Timeline views to inspect what the agent changed.
+
+Rostrum runs an agent as a local subprocess on the workspace extension host. In Remote SSH, WSL, and dev-container windows, that means the process runs in the remote environment where the workspace lives—not on the local desktop.
+
+## Configure agents
+
+Configure agents in VS Code settings under `rostrum.agents`. It is an object whose keys are display names and whose values describe a process to launch:
+
+```jsonc
+{
+  "rostrum.agents": {
+    "My ACP agent": {
+      "command": "agent-command",
+      "args": ["--acp"],
+      "env": {
+        "EXAMPLE_SETTING": "value"
+      },
+      "cwd": "/optional/working/directory"
+    }
+  },
+  "rostrum.defaultAgent": "My ACP agent",
+  "rostrum.permissionMode": "ask"
+}
+```
+
+`command` is an executable name or path. `args` must be an array: Rostrum does **not** run a shell, so do not put an entire command line in `command`. `env` and `cwd` are optional.
+
+### Common examples
+
+Exact agent installation and authentication remain the responsibility of each agent. These are typical ACP invocations after its CLI is available:
+
+```jsonc
 {
   "rostrum.agents": {
     "Qwen Code": {
+      "command": "qwen",
+      "args": ["--acp", "--experimental-skills"]
+    },
+    "Gemini CLI": {
+      "command": "gemini",
+      "args": ["--acp"]
+    },
+    "GitHub Copilot": {
+      "command": "copilot",
+      "args": ["--acp"]
+    },
+    "Claude Code": {
       "command": "npx",
-      "args": ["@qwen-code/qwen-code@0.22.0", "--acp"],
-      "env": {}
+      "args": ["-y", "@agentclientprotocol/claude-agent-acp"]
+    },
+    "Codex": {
+      "command": "npx",
+      "args": ["-y", "@agentclientprotocol/codex-acp"]
     }
   }
 }
 ```
 
-## Build
+Claude Code and Codex use ACP adapters in these examples; launching their base CLIs directly is not an ACP handshake. Rostrum’s PATH discovery uses the appropriate adapter or `--acp` invocation for the known CLI.
 
-```bash
-npm install
-npm run build
-npm test          # unit + question round-trip against a mock agent
-npm run test:live # handshake against real Qwen Code (needs a model endpoint)
+### Permission mode
+
+`rostrum.permissionMode` controls the default reply to an agent permission request:
+
+| Value | Behavior |
+| --- | --- |
+| `ask` | Show each request so you can allow or deny it. This is the default. |
+| `acceptEdits` | Automatically accept edit-related requests; other requests remain subject to the agent and protocol semantics. |
+| `yolo` | Automatically accept requests. Use only with agents and workspaces you trust. |
+
+Rostrum’s UI remains the source of truth for interactive agent questions and permission prompts. Do not use automatic approval for unfamiliar codebases or credentials-bearing environments.
+
+### MCP servers
+
+Use `rostrum.mcpServers` for MCP servers shared by every agent. Set `mcpServers` within an entry in `rostrum.agents` for per-agent servers; an agent-specific server overrides a global server with the same name.
+
+```jsonc
+{
+  "rostrum.mcpServers": {
+    "workspace-tools": {
+      "command": "npx",
+      "args": ["-y", "@example/workspace-mcp"],
+      "env": {
+        "EXAMPLE_TOKEN": "set-this-securely"
+      }
+    },
+    "docs": {
+      "type": "http",
+      "url": "https://example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer <token>"
+      }
+    }
+  },
+  "rostrum.agents": {
+    "My ACP agent": {
+      "command": "agent-command",
+      "args": ["--acp"],
+      "mcpServers": {
+        "workspace-tools": {
+          "command": "npx",
+          "args": ["-y", "@example/agent-specific-mcp"]
+        }
+      }
+    }
+  }
+}
 ```
 
-`npm test` uses Python 3 for its stdio ACP mock, so it remains an end-to-end child-process check even in environments that restrict nested Node processes.
+Stdio servers use `command`, `args`, and optional `env`. Remote servers use `type: "http"` or `type: "sse"`, a `url`, and optional `headers`. Rostrum passes a transport only when the active agent advertises support for it.
 
-## Why
+Set `rostrum.promptForAuth` to `true` if you want Rostrum to offer authentication methods advertised by the agent at startup. Many local agents do not need this.
 
-ACP is an open protocol, so agents stay interchangeable. Rostrum gives you one chat UI for any ACP-compatible agent without tying you to a single vendor.
+## Everyday workflow
+
+- **Start or switch a conversation:** use **Rostrum: New Session** or **Rostrum: Open Session**. The Sessions view combines locally saved transcripts with the connected agent’s paginated session catalog.
+- **Inspect a long turn:** use the Outline view to jump to messages, tool calls, and other points in the active conversation.
+- **Review edits:** open Changes for the current changed-file list, Timeline for chronological edits across files, or use the historical-diff command for a saved snapshot.
+- **Resume safely:** Rostrum tries an agent’s `session/load`, then `session/resume`. If neither works, it opens the saved transcript as clearly read-only history instead of pretending the agent can continue it.
+- **Export or branch work:** export a stored transcript as Markdown or fork a session when the agent supports ACP session forks.
+- **Manage agent processes:** use **Rostrum: Restart Agent**, **Show Background Agent Status**, **Show Agent Log**, or **Stop Background Agents** when troubleshooting long-running processes.
+
+## Commands
+
+Open the Command Palette and search for `Rostrum`.
+
+| Command | Purpose |
+| --- | --- |
+| `Rostrum: New Session` | Start a new conversation. |
+| `Rostrum: Select Agent` | Choose a configured or discovered agent. |
+| `Rostrum: Edit Agent Settings` | Open agent configuration. |
+| `Rostrum: Install Agent from Registry` | Add an agent published in the ACP registry. |
+| `Rostrum: Open Session` | Open a live, saved, or agent-discovered conversation. |
+| `Rostrum: Refresh Agent Sessions` | Refresh the agent-provided session catalog. |
+| `Rostrum: Export Session Transcript` | Write a saved transcript as Markdown. |
+| `Rostrum: Open Diff` | Review current agent changes. |
+| `Rostrum: Open Historical Agent Diff` | Compare a durable historical edit snapshot. |
+| `Rostrum: Cancel Turn` | Cancel the current agent turn. |
+| `Rostrum: Restart Agent` | Restart the active agent process. |
+| `Rostrum: Show Background Agent Status` | Inspect the local agent supervisor. |
+| `Rostrum: Show Agent Log` | View captured agent output for diagnosis. |
+| `Rostrum: Stop Background Agents` | Stop one or all supervised background agents. |
+
+## Security and privacy
+
+Rostrum is a client and UI; the configured agent and any MCP servers decide what model services they contact and what data they send. Before use, understand the privacy policy and authentication model of every agent and MCP server you configure.
+
+- The extension starts only in trusted workspaces because agents may execute commands.
+- File access is confined to the workspace roots, including checks designed to prevent symlink escapes.
+- Permission requests are surfaced in the UI. Background conversations that need approval notify you rather than approving themselves.
+- MCP credentials placed in VS Code settings may be readable by people or processes with access to those settings. Prefer your platform’s secret-management mechanisms or agent-supported credential flows where possible.
+- Agents installed from the ACP registry use `npx`, `uvx`, or a platform binary; downloaded registry binaries are checksum-verified when the registry supplies a SHA-256 checksum.
+
+## Compatibility and current status
+
+Rostrum is designed for ACP-compatible agents, rather than a fixed vendor list. ACP is capability-based, so the exact experience depends on what an agent implements: a missing capability is disabled instead of emulated unreliably.
+
+The project has automated coverage for the protocol client, session persistence, registry installation, supervisor, routing, concurrent-session behavior, sidebar/provider behavior, exports, discovery, and a mock-agent ACP round trip. Live interoperability and UI validation across all agents and remote environments are ongoing. Please open an issue with the agent name, version, platform, invocation, and a redacted log if you find a compatibility problem.
+
+## Development
+
+```bash
+npm ci
+npm run typecheck
+npm run build
+npm test
+```
+
+`npm test` bundles extension code against a VS Code stub, then runs unit, regression, feature, supervisor, concurrency, provider, tree, export, discovery, and mock ACP round-trip checks.
+
+For a live Qwen handshake, configure the required model endpoint and run:
+
+```bash
+npm run test:live
+```
+
+Build a distributable extension with:
+
+```bash
+npx vsce package --no-dependencies
+```
+
+## Contributing
+
+Contributions, agent compatibility reports, documentation fixes, and UI feedback are welcome. Please:
+
+1. Search existing [issues](https://github.com/rostrum-ai/rostrum/issues) before opening a new one.
+2. Keep changes focused and add or update tests for behavior changes.
+3. Run `npm run typecheck` and `npm test` before submitting a pull request.
+4. Never include API keys, tokens, private prompts, workspace contents, or unredacted logs in an issue or pull request.
+
+For a protocol or compatibility issue, include the ACP agent and version, OS/remote-host context, the configured command and arguments, the expected behavior, and a minimal reproduction.
+
+## Project links
+
+- [Agent Client Protocol](https://agentclientprotocol.com/)
+- [ACP agent registry](https://agentclientprotocol.com/get-started/registry)
+- [Report an issue](https://github.com/rostrum-ai/rostrum/issues)
+- [Apache-2.0 license](LICENSE)
 
 ## License
 
-Apache-2.0
+Rostrum ACP is licensed under [Apache-2.0](LICENSE).
