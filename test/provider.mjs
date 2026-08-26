@@ -197,6 +197,19 @@ const textOf = (turns) =>
   const stillRunning = provider.liveSessions().find((s) => s.sessionId === "session-1");
   assert.equal(stillRunning.lifecycle, "running", "the background turn is still going");
 
+  // The webview needs the whole set, not just the visible conversation, or the
+  // session switcher cannot offer a way back to the one still working.
+  await provider.pushState();
+  const { state } = posted.filter((m) => m.type === "state").pop();
+  assert.deepEqual(
+    state.liveSessions.map((s) => [s.sessionId, s.lifecycle, s.active]),
+    [
+      ["session-1", "running", false],
+      ["session-2", "idle", true],
+    ],
+  );
+  ok("view state carries every live conversation and its status, not just the visible one");
+
   agent.finish("session-1", { totalTokens: 30, inputTokens: 10, outputTokens: 20 });
   await running;
 

@@ -90,7 +90,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }));
   }
 
-  /** Live conversations, newest first, for the picker and the sidebar. */
+  /**
+   * Live conversations in the order they were opened.
+   *
+   * Deliberately not sorted by recency: these back a tab strip, and chips that
+   * reorder themselves whenever a background turn emits a token are unusable.
+   */
   liveSessions(): LiveSession[] {
     return [...this.sessions.values()]
       .map((controller) => ({
@@ -101,9 +106,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         lifecycle: controller.lifecycle,
         active: this.isActive(controller),
         updatedAt: controller.updatedAt,
+        createdAt: controller.createdAt,
         queued: controller.queue.length,
       }))
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+      .sort((a, b) => a.createdAt - b.createdAt);
   }
 
   /** Scroll the chat panel to a turn picked in the Outline view. */

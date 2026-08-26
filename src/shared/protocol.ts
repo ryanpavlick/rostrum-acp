@@ -108,6 +108,8 @@ export interface LiveSession {
   lifecycle: SessionLifecycle;
   active: boolean;
   updatedAt: number;
+  /** Open order, which is what the session switcher sorts by. */
+  createdAt: number;
   queued: number;
 }
 

@@ -4,6 +4,7 @@ import type {
   HostMessage,
   PendingRequest,
   Question,
+  SessionLifecycle,
   Turn,
   ViewMessage,
   ViewState,
@@ -67,6 +68,7 @@ function post(message: ViewMessage): void {
 
 const root = document.getElementById("root")!;
 const header = el("div", "header");
+const sessionBar = el("div", "session-bar");
 const optionBar = el("div", "option-bar");
 const log = el("div", "log");
 const planHost = el("div", "plan-host");
@@ -74,7 +76,7 @@ const pendingHost = el("div", "pending-host");
 const queueHost = el("div", "queue-host");
 const attachHost = el("div", "attach-host");
 const composer = el("div", "composer");
-root.append(header, optionBar, log, planHost, pendingHost, queueHost, attachHost, composer);
+root.append(header, sessionBar, optionBar, log, planHost, pendingHost, queueHost, attachHost, composer);
 
 const agentSelect = el("select", "picker");
 agentSelect.onchange = () => post({ type: "selectAgent", agent: agentSelect.value });
@@ -338,6 +340,7 @@ function renderAll(): void {
     agentSelect.append(option);
   }
 
+  renderSessions();
   renderOptions();
   renderPlan();
   renderQueue();
@@ -347,6 +350,42 @@ function renderAll(): void {
   renderUsage();
   applyBusy();
   renderPending(state.pending);
+}
+
+const LIFECYCLE_TEXT: Record<SessionLifecycle, string> = {
+  idle: "idle",
+  running: "running",
+  "awaiting-approval": "needs you",
+  error: "error",
+  disconnected: "disconnected",
+};
+
+/**
+ * A switcher across every conversation this window is running.
+ *
+ * Concurrency is only useful if a background turn is reachable, so each
+ * conversation gets a chip carrying its status: one that needs the user is
+ * marked as such rather than looking the same as one still working. The strip
+ * stays hidden while there is nothing to switch between.
+ */
+function renderSessions(): void {
+  sessionBar.replaceChildren();
+  if (state.liveSessions.length < 2) {
+    sessionBar.style.display = "none";
+    return;
+  }
+  sessionBar.style.display = "";
+
+  for (const session of state.liveSessions) {
+    const chip = el("button", `session-chip ${session.active ? "active" : ""}`);
+    chip.append(el("span", `session-dot ${session.lifecycle}`));
+    chip.append(el("span", "session-title", session.title));
+    if (session.queued > 0) chip.append(el("span", "session-badge", String(session.queued)));
+    chip.title = `${session.agentKey} — ${LIFECYCLE_TEXT[session.lifecycle]}`;
+    chip.disabled = session.active;
+    chip.onclick = () => post({ type: "revealSession", controllerId: session.controllerId });
+    sessionBar.append(chip);
+  }
 }
 
 /**

@@ -49,6 +49,7 @@ const liveSessions = [
     lifecycle: "running",
     active: true,
     updatedAt: noon,
+    createdAt: noon,
     queued: 2,
   },
   {
@@ -59,6 +60,7 @@ const liveSessions = [
     lifecycle: "awaiting-approval",
     active: false,
     updatedAt: noon,
+    createdAt: noon + 1,
     queued: 0,
   },
   {
@@ -69,6 +71,7 @@ const liveSessions = [
     lifecycle: "idle",
     active: false,
     updatedAt: noon,
+    createdAt: noon + 2,
     queued: 0,
   },
 ];
