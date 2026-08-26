@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { managerLogs, managerStateFile, managerStatus, managerStop } from "./agentProcess.js";
 import { ChatViewProvider } from "./chatView.js";
 import { ChangeHistory } from "./history.js";
 import { migrateLegacySettings } from "./migrate.js";
@@ -183,6 +184,30 @@ export function activate(context: vscode.ExtensionContext): void {
       timeline.refresh();
     }),
 
+    vscode.commands.registerCommand("rostrum.supervisorStatus", () =>
+      showSupervisorStatus(managerStateFile(storage), output),
+    ),
+
+    vscode.commands.registerCommand("rostrum.showAgentLog", () =>
+      showAgentLog(managerStateFile(storage), output),
+    ),
+
+    vscode.commands.registerCommand("rostrum.stopSupervisor", async () => {
+      const status = await managerStatus(managerStateFile(storage));
+      if (!status) {
+        void vscode.window.showInformationMessage("No Rostrum background agents are running.");
+        return;
+      }
+      const answer = await vscode.window.showWarningMessage(
+        `Stop ${status.agents.length} background agent${status.agents.length === 1 ? "" : "s"} and shut down the Rostrum supervisor? Any turn still running will be cancelled.`,
+        { modal: true },
+        "Stop",
+      );
+      if (answer !== "Stop") return;
+      await managerStop(managerStateFile(storage));
+      void vscode.window.showInformationMessage("Rostrum background agents stopped.");
+    }),
+
     vscode.commands.registerCommand("rostrum.editSettings", () =>
       vscode.commands.executeCommand("workbench.action.openSettings", "rostrum"),
     ),
@@ -251,6 +276,78 @@ async function installAgent(
       }
     },
   );
+}
+
+/**
+ * Report what the detached supervisor is running.
+ *
+ * The supervisor outlives the window, so "what is running" is a question the
+ * extension cannot answer from its own state alone: it has to ask.
+ */
+async function showSupervisorStatus(
+  stateFile: string,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const status = await managerStatus(stateFile);
+  if (!status) {
+    void vscode.window.showInformationMessage(
+      "No Rostrum supervisor is running. Agents start one the first time they launch.",
+    );
+    return;
+  }
+
+  output.appendLine("");
+  output.appendLine(`Rostrum supervisor pid ${status.pid}, up ${duration(Date.now() - status.startedAt)}.`);
+  if (status.agents.length === 0) output.appendLine("  No agents are currently supervised.");
+  for (const agent of status.agents) {
+    output.appendLine(
+      `  ${agent.agentKey} — pid ${agent.pid ?? "?"}, ${agent.alive ? "alive" : "exited"}, ` +
+        `${agent.attached ? "attached" : "detached"}, up ${duration(Date.now() - agent.startedAt)}, ` +
+        `${agent.attachments} attachment(s), ${agent.pendingBytes} B buffered` +
+        (agent.droppedBytes > 0 ? `, ${agent.droppedBytes} B dropped` : ""),
+    );
+  }
+  output.show(true);
+}
+
+/** Show the supervisor's captured stderr for one agent. */
+async function showAgentLog(stateFile: string, output: vscode.OutputChannel): Promise<void> {
+  const status = await managerStatus(stateFile);
+  if (!status || status.agents.length === 0) {
+    void vscode.window.showInformationMessage("No supervised agents have logs yet.");
+    return;
+  }
+
+  const picked =
+    status.agents.length === 1
+      ? status.agents[0]
+      : (
+          await vscode.window.showQuickPick(
+            status.agents.map((agent) => ({
+              label: agent.agentKey,
+              description: `pid ${agent.pid ?? "?"} · ${agent.stderrLines} line(s)`,
+              agent,
+            })),
+            { placeHolder: "Show the supervisor log for which agent?" },
+          )
+        )?.agent;
+  if (!picked) return;
+
+  const lines = await managerLogs(stateFile, picked.key);
+  output.appendLine("");
+  output.appendLine(`--- ${picked.agentKey} (supervisor stderr, most recent ${lines.length} lines) ---`);
+  if (lines.length === 0) output.appendLine("  (nothing captured)");
+  for (const line of lines) output.appendLine(`  ${line}`);
+  output.show(true);
+}
+
+function duration(milliseconds: number): string {
+  const seconds = Math.max(0, Math.round(milliseconds / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
 }
 
 export function deactivate(): void {

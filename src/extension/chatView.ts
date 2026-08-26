@@ -91,6 +91,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     await this.pushState();
   }
 
+  /** Supervisor keys for the connections this window is driving. */
+  supervisedAgents(): { agentKey: string; key: string; persistent: boolean }[] {
+    return [...this.connections.values()].map((connection) => ({
+      agentKey: connection.agentKey,
+      key: connection.key,
+      persistent: connection.persistent,
+    }));
+  }
+
   /** Live conversations, newest first, for the picker and the sidebar. */
   liveSessions(): LiveSessionMeta[] {
     return [...this.sessions.values()]
@@ -270,6 +279,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     this.connections.set(agentKey, connection);
     this.watchExit(connection);
+    if (connection.droppedBytes > 0) {
+      // Reattaching to a supervisor that had to discard output is not a
+      // silent event: the transcript genuinely lost frames.
+      this.post({
+        type: "error",
+        message: `Reattached to ${agentKey}, but ${connection.droppedBytes} bytes of its output were discarded while no window was open. Its transcript may be incomplete.`,
+      });
+    }
 
     try {
       const init = await connection.handshake();

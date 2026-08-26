@@ -150,6 +150,19 @@
       {
         "command": "rostrum.openHistoryDiff",
         "title": "Rostrum: Open Historical Agent Diff"
+      },
+      {
+        "command": "rostrum.supervisorStatus",
+        "title": "Rostrum: Show Background Agent Status",
+        "icon": "$(server-process)"
+      },
+      {
+        "command": "rostrum.stopSupervisor",
+        "title": "Rostrum: Stop Background Agents"
+      },
+      {
+        "command": "rostrum.showAgentLog",
+        "title": "Rostrum: Show Agent Log"
       }
     ],
     "menus": {
@@ -275,8 +288,8 @@
     "build": "node build.mjs",
     "watch": "node build.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "build:test": "esbuild src/extension/session.ts src/extension/agentProcess.ts src/extension/questions.ts src/extension/registry.ts src/extension/usage.ts src/extension/history.ts src/extension/capabilities.ts src/extension/terminals.ts src/extension/store.ts src/extension/mcp.ts src/extension/router.ts src/extension/managedSession.ts src/extension/agentConnection.ts src/extension/chatView.ts --bundle --platform=node --target=node20 --format=esm --outdir=out/test --external:vscode --alias:vscode=./test/stubs/vscode.ts",
-    "test": "npm run build:test -s && node test/units.mjs && node test/regressions.mjs && node test/features.mjs && node test/concurrency.mjs && node test/provider.mjs && node test/roundtrip.mjs",
+    "build:test": "esbuild src/manager.ts src/extension/session.ts src/extension/agentProcess.ts src/extension/questions.ts src/extension/registry.ts src/extension/usage.ts src/extension/history.ts src/extension/capabilities.ts src/extension/terminals.ts src/extension/store.ts src/extension/mcp.ts src/extension/router.ts src/extension/managedSession.ts src/extension/agentConnection.ts src/extension/chatView.ts --bundle --platform=node --target=node20 --format=esm --outdir=out/test --external:vscode --alias:vscode=./test/stubs/vscode.ts",
+    "test": "npm run build:test -s && node test/units.mjs && node test/regressions.mjs && node test/features.mjs && node test/manager.mjs && node test/concurrency.mjs && node test/provider.mjs && node test/roundtrip.mjs",
     "test:live": "npm run build:test -s && node test/smoke-qwen.mjs"
   },
   "devDependencies": {

@@ -10,7 +10,12 @@ import * as path from "node:path";
 import type { Agent, InitializeResponse } from "@agentclientprotocol/sdk";
 import type { Capabilities } from "../shared/protocol.js";
 import { NO_CAPABILITIES, readCapabilities } from "./capabilities.js";
-import { launchAgent, launchPersistentAgent, type AgentDefinition, type AgentHandle } from "./agentProcess.js";
+import {
+  launchAgent,
+  launchPersistentAgent,
+  type AgentDefinition,
+  type AgentHandle,
+} from "./agentProcess.js";
 import { SessionRouter } from "./router.js";
 import type { ManagedSession } from "./managedSession.js";
 
@@ -70,6 +75,16 @@ export class AgentConnection {
   disposed = false;
   /** Set when the agent exits on its own rather than at our request. */
   exitCode: number | null | undefined;
+
+  /**
+   * Bytes the supervisor discarded while no window was attached.
+   *
+   * Non-zero means this connection resumed a stream with a hole in it, which
+   * the user is told about rather than left to infer from a gap.
+   */
+  get droppedBytes(): number {
+    return this.handle.droppedBytes ?? 0;
+  }
 
   private constructor(
     readonly key: string,
@@ -150,7 +165,12 @@ export class AgentConnection {
         try {
           return await launchPersistentAgent(
             definition,
-            { managerScript: options.managerScript, stateFile: options.stateFile, key },
+            {
+              managerScript: options.managerScript,
+              stateFile: options.stateFile,
+              key,
+              agentKey: options.agentKey,
+            },
             client,
           );
         } catch (error) {
