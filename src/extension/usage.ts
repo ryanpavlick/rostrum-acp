@@ -9,6 +9,10 @@ export interface UsageTotals {
   outputTokens: number;
   thoughtTokens: number;
   cachedReadTokens: number;
+  /** Wall-clock time spent in `session/prompt`, summed across turns. */
+  durationMs: number;
+  /** Tool calls the agent reported, summed across turns. */
+  toolCalls: number;
 }
 
 export function emptyTotals(): UsageTotals {
@@ -19,16 +23,26 @@ export function emptyTotals(): UsageTotals {
     outputTokens: 0,
     thoughtTokens: 0,
     cachedReadTokens: 0,
+    durationMs: 0,
+    toolCalls: 0,
   };
 }
 
-function add(into: UsageTotals, usage: Usage): void {
+/** What a single turn cost, beyond the token counts ACP reports. */
+export interface TurnCost {
+  durationMs?: number;
+  toolCalls?: number;
+}
+
+function add(into: UsageTotals, usage: Usage, cost: TurnCost = {}): void {
   into.turns += 1;
   into.totalTokens += usage.totalTokens ?? 0;
   into.inputTokens += usage.inputTokens ?? 0;
   into.outputTokens += usage.outputTokens ?? 0;
   into.thoughtTokens += usage.thoughtTokens ?? 0;
   into.cachedReadTokens += usage.cachedReadTokens ?? 0;
+  into.durationMs += cost.durationMs ?? 0;
+  into.toolCalls += cost.toolCalls ?? 0;
 }
 
 /**
@@ -55,12 +69,18 @@ export class UsageTracker {
     }
   }
 
-  async record(agentKey: string, usage: Usage | null | undefined): Promise<void> {
+  async record(
+    agentKey: string,
+    usage: Usage | null | undefined,
+    cost: TurnCost = {},
+  ): Promise<void> {
     if (!usage) return;
     await this.load();
 
-    const totals = this.byAgent.get(agentKey) ?? emptyTotals();
-    add(totals, usage);
+    // Totals written by an older version lack the newer fields; fill them in
+    // rather than propagating NaN through every later addition.
+    const totals = { ...emptyTotals(), ...this.byAgent.get(agentKey) };
+    add(totals, usage, cost);
     this.byAgent.set(agentKey, totals);
 
     await fs.mkdir(path.dirname(this.file), { recursive: true });
@@ -88,4 +108,15 @@ export function formatTokens(count: number): string {
   if (count < 1000) return String(count);
   if (count < 1_000_000) return `${(count / 1000).toFixed(1)}k`;
   return `${(count / 1_000_000).toFixed(2)}M`;
+}
+
+/** Compact human-readable duration, e.g. 1m 12s. */
+export function formatDuration(milliseconds: number): string {
+  if (milliseconds <= 0) return "0s";
+  const seconds = Math.round(milliseconds / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
 }

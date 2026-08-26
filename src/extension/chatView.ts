@@ -748,9 +748,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.postAttachments(controller);
 
     let completed = false;
+    const startedAt = Date.now();
+    const toolCallsBefore = controller.session.toolCallCount();
     try {
       const response = await connection.agent.prompt({ sessionId, prompt });
-      await this.recordUsage(controller, response.usage);
+      await this.recordUsage(controller, response.usage, {
+        durationMs: Date.now() - startedAt,
+        toolCalls: Math.max(0, controller.session.toolCallCount() - toolCallsBefore),
+      });
       completed = !abort.signal.aborted;
     } catch (error) {
       if (!abort.signal.aborted) {
@@ -810,9 +815,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private async recordUsage(
     controller: ManagedSession,
     usage: Parameters<UsageTracker["record"]>[1],
+    cost: Parameters<UsageTracker["record"]>[2] = {},
   ): Promise<void> {
     if (!usage) return;
-    await this.usageTracker.record(controller.agentKey, usage);
+    await this.usageTracker.record(controller.agentKey, usage, cost);
 
     controller.usage = {
       turns: (controller.usage?.turns ?? 0) + 1,

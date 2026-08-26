@@ -9,6 +9,12 @@ Rostrum ACP is an open-source VS Code extension that runs ACP-compatible coding 
 
 Bring the agent you already use—such as Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Qwen Code, OpenCode, Hermes, or another ACP-compatible implementation—and use it from one consistent UI. Rostrum communicates with agents through JSON-RPC over standard input/output using the official [`@agentclientprotocol/sdk`](https://www.npmjs.com/package/@agentclientprotocol/sdk).
 
+<p align="center">
+  <img src="docs/images/rostrum-workspace-overview.png" alt="Conceptual dark-mode coding workspace with a Rostrum chat panel, tool activity, agent approval, and a change diff." width="100%">
+</p>
+
+> Concept illustration of the Rostrum workflow; the exact VS Code interface varies by version and agent capability.
+
 > [!IMPORTANT]
 > Agents can read files and run commands in your workspace. Rostrum intentionally does not support untrusted workspaces. Review permission requests carefully and only configure agents you trust.
 
@@ -17,6 +23,10 @@ Bring the agent you already use—such as Claude Code, Codex, GitHub Copilot CLI
 1. **Choose an agent.** Rostrum detects several common CLIs on your `PATH`, can install agents from the [ACP registry](https://agentclientprotocol.com/get-started/registry), and accepts any hand-written ACP process definition.
 2. **Rostrum launches it beside your code.** The agent remains a subprocess in your environment, using your account, credentials, model configuration, and workspace. In VS Code remote windows it runs on the remote workspace host.
 3. **Work from a consistent interface.** ACP lets Rostrum translate the common parts—prompts, streaming output, permissions, sessions, and edits—into one VS Code experience, while capability negotiation preserves each agent’s unique features.
+
+<p align="center">
+  <img src="docs/images/rostrum-acp-workflow.png" alt="Conceptual diagram of several agent processes joining through an ACP routing hub to one VS Code workspace, where the user reviews permissions and diffs." width="100%">
+</p>
 
 ## Why Rostrum
 

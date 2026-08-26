@@ -2,7 +2,16 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { managerLogs, managerStateFile, managerStatus, managerStop } from "./agentProcess.js";
 import { ChatViewProvider } from "./chatView.js";
+import { AgentDiffProvider } from "./diffs.js";
 import { detectAgents, nodeProbe, type DetectedAgent } from "./discovery.js";
+import {
+  TIME_WINDOWS,
+  agentsIn,
+  describeFilter,
+  isFiltered,
+  type TimelineFilter,
+  type TimeWindow,
+} from "./timeline.js";
 import { formatForPath, serializeTranscript } from "./export.js";
 import { ChangeHistory } from "./history.js";
 import { migrateLegacySettings } from "./migrate.js";
@@ -26,6 +35,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const store = new SessionStore(path.join(storage, "sessions"));
   const history = new ChangeHistory(path.join(storage, "changes.jsonl"));
   const usage = new UsageTracker(path.join(storage, "usage.json"));
+  const diffs = new AgentDiffProvider();
 
   const sessions = new SessionsTree(store);
   const changes = new ChangedFilesTree(history);
@@ -51,6 +61,14 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   sessions.setLiveSource(() => chat.liveSessions());
+  changes.setRoots(() => vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) ?? []);
+
+  /** Drives the `when` clauses that swap the Changes view's mode button. */
+  const applyChangesMode = (grouped: boolean) => {
+    changes.setGrouped(grouped);
+    void vscode.commands.executeCommand("setContext", "rostrum.changesGrouped", grouped);
+  };
+  applyChangesMode(false);
 
   void history.load().then(() => {
     changes.refresh();
@@ -60,6 +78,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     output,
     chat,
+    diffs,
     vscode.window.registerWebviewViewProvider("rostrum.chatView", chat),
     vscode.window.registerTreeDataProvider("rostrum.sessionsView", sessions),
     vscode.window.registerTreeDataProvider("rostrum.changedFilesView", changes),
@@ -75,24 +94,11 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand("rostrum.pickSession", () => chat.pickSession()),
 
-    vscode.commands.registerCommand("rostrum.openHistoryDiff", async (edit) => {
-      if (typeof edit?.newText !== "string") {
-        await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(edit.path));
-        return;
-      }
-      const language = await vscode.workspace.openTextDocument(vscode.Uri.file(edit.path))
-        .then((document) => document.languageId, () => "plaintext");
-      const [before, after] = await Promise.all([
-        vscode.workspace.openTextDocument({ content: edit.oldText ?? "", language }),
-        vscode.workspace.openTextDocument({ content: edit.newText, language }),
-      ]);
-      await vscode.commands.executeCommand(
-        "vscode.diff",
-        before.uri,
-        after.uri,
-        `Agent edit: ${path.basename(edit.path)}`,
-      );
-    }),
+    vscode.commands.registerCommand("rostrum.openHistoryDiff", (edit) => diffs.open(edit)),
+
+    vscode.commands.registerCommand("rostrum.compareWithCurrent", (edit) =>
+      diffs.compareWithCurrent(edit),
+    ),
 
     vscode.commands.registerCommand("rostrum.openDiff", async (filePath?: string) => {
       if (typeof filePath === "string") {
@@ -202,6 +208,23 @@ export function activate(context: vscode.ExtensionContext): void {
       await history.clear();
       changes.refresh();
       timeline.refresh();
+    }),
+
+    vscode.commands.registerCommand("rostrum.changesAsTree", () => applyChangesMode(true)),
+    vscode.commands.registerCommand("rostrum.changesAsList", () => applyChangesMode(false)),
+
+    vscode.commands.registerCommand("rostrum.filterTimeline", async () => {
+      await history.load();
+      const edits = history.files().flatMap((file) => file.edits);
+      const filter = await pickTimelineFilter(timeline.currentFilter, agentsIn(edits));
+      if (!filter) return;
+      timeline.setFilter(filter);
+      void vscode.commands.executeCommand("setContext", "rostrum.timelineFiltered", isFiltered(filter));
+    }),
+
+    vscode.commands.registerCommand("rostrum.clearTimelineFilter", () => {
+      timeline.setFilter({ window: "all" });
+      void vscode.commands.executeCommand("setContext", "rostrum.timelineFiltered", false);
     }),
 
     vscode.commands.registerCommand("rostrum.supervisorStatus", () =>
@@ -423,6 +446,43 @@ async function detectAndAddAgents(chat: ChatViewProvider): Promise<void> {
     "Start it",
   );
   if (start) await chat.startAgent(names[0]);
+}
+
+/**
+ * Build a timeline filter from two quick picks: when, then who.
+ *
+ * Two steps rather than one combined list because the two axes are
+ * independent — "today" and "which agent" are different questions, and
+ * flattening them into one list makes the common case (just a time window)
+ * harder, not easier.
+ */
+async function pickTimelineFilter(
+  current: TimelineFilter,
+  agents: string[],
+): Promise<TimelineFilter | undefined> {
+  const window = await vscode.window.showQuickPick(
+    TIME_WINDOWS.map((entry) => ({
+      label: entry.label,
+      description: entry.id === current.window ? "current" : undefined,
+      id: entry.id,
+    })),
+    { placeHolder: "Show edits from when?" },
+  );
+  if (!window) return undefined;
+
+  // With at most one agent in the log there is nothing to choose between.
+  if (agents.length < 2) return { window: window.id as TimeWindow };
+
+  const agent = await vscode.window.showQuickPick(
+    [
+      { label: "All agents", key: undefined as string | undefined },
+      ...agents.map((agentKey) => ({ label: agentKey, key: agentKey })),
+    ],
+    { placeHolder: "Show edits from which agent?" },
+  );
+  if (!agent) return undefined;
+
+  return { window: window.id as TimeWindow, agentKey: agent.key };
 }
 
 export function deactivate(): void {

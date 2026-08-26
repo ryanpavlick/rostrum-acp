@@ -6,9 +6,17 @@ import type {
   ToolCall,
   Turn,
 } from "../shared/protocol.js";
+import { buildFileTree, relativeTo, type ChangeTreeNode } from "./changeTree.js";
 import type { ChangeHistory, EditRecord, FileHistory } from "./history.js";
+import {
+  DEFAULT_FILTER,
+  describeFilter,
+  filterEdits,
+  isFiltered,
+  type TimelineFilter,
+} from "./timeline.js";
 import type { SessionStore } from "./store.js";
-import { formatTokens, type UsageTracker } from "./usage.js";
+import { formatDuration, formatTokens, type UsageTotals, type UsageTracker } from "./usage.js";
 
 /**
  * One row in the Sessions view: a heading, a conversation this window is
@@ -172,32 +180,67 @@ export class SessionsTree implements vscode.TreeDataProvider<SessionNode> {
   }
 }
 
-/** A file node, or one past edit of that file. */
-type ChangeNode = { type: "file"; file: FileHistory } | { type: "edit"; file: FileHistory; index: number };
+/** A row in the Changes view: a folder, a changed file, or one past edit. */
+export type ChangeNode =
+  | { type: "folder"; node: Extract<ChangeTreeNode, { type: "folder" }> }
+  | { type: "file"; file: FileHistory }
+  | { type: "edit"; file: FileHistory; index: number };
 
 /**
  * Files the agents have edited, expandable into per-file edit history so you
  * can see which session last touched a file.
+ *
+ * Flat by default, since a handful of changed files reads best as a list; the
+ * folder view is what keeps a hundred of them navigable.
  */
 export class ChangedFilesTree implements vscode.TreeDataProvider<ChangeNode> {
   private readonly changed = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.changed.event;
+  private asTree = false;
+  private roots: () => string[] = () => [];
 
   constructor(private readonly history: ChangeHistory) {}
+
+  /** Workspace roots, so paths can be shown relative to them. */
+  setRoots(roots: () => string[]): void {
+    this.roots = roots;
+  }
+
+  get grouped(): boolean {
+    return this.asTree;
+  }
+
+  setGrouped(asTree: boolean): void {
+    if (this.asTree === asTree) return;
+    this.asTree = asTree;
+    this.refresh();
+  }
 
   refresh(): void {
     this.changed.fire();
   }
 
   getTreeItem(node: ChangeNode): vscode.TreeItem {
+    if (node.type === "folder") {
+      const item = new vscode.TreeItem(node.node.label, vscode.TreeItemCollapsibleState.Expanded);
+      item.description = `${node.node.fileCount}`;
+      item.iconPath = vscode.ThemeIcon.Folder;
+      item.contextValue = "rostrum.changedFolder";
+      item.id = `folder:${node.node.path}`;
+      return item;
+    }
+
     if (node.type === "file") {
       const uri = vscode.Uri.file(node.file.path);
       const item = new vscode.TreeItem(uri, vscode.TreeItemCollapsibleState.Collapsed);
-      item.label = node.file.path.split("/").pop();
+      item.label = node.file.path.split(/[\\/]/).pop();
       const count = node.file.edits.length;
-      item.description = count > 1 ? `${count} edits` : "1 edit";
+      item.description = this.asTree
+        ? count > 1 ? `${count} edits` : "1 edit"
+        : `${relativeTo(this.roots(), node.file.path).split("/").slice(0, -1).join("/") || "."} · ${count > 1 ? `${count} edits` : "1 edit"}`;
       item.resourceUri = uri;
       item.contextValue = "rostrum.changedFile";
+      item.id = `file:${node.file.path}`;
       item.command = { command: "vscode.open", title: "Open", arguments: [uri] };
       return item;
     }
@@ -209,7 +252,8 @@ export class ChangedFilesTree implements vscode.TreeDataProvider<ChangeNode> {
     );
     item.description = edit.agentKey;
     item.iconPath = new vscode.ThemeIcon("history");
-    item.tooltip = `Session ${edit.sessionId}`;
+    item.tooltip = `${edit.path}\nSession ${edit.sessionId}`;
+    item.id = `edit:${node.file.path}:${node.index}`;
     item.command = {
       command: "rostrum.openHistoryDiff",
       title: "Open agent edit",
@@ -220,8 +264,11 @@ export class ChangedFilesTree implements vscode.TreeDataProvider<ChangeNode> {
 
   getChildren(node?: ChangeNode): ChangeNode[] {
     if (!node) {
-      return this.history.files().map((file) => ({ type: "file" as const, file }));
+      const files = this.history.files();
+      if (!this.asTree) return files.map((file) => ({ type: "file" as const, file }));
+      return buildFileTree(files, this.roots()).map(toChangeNode);
     }
+    if (node.type === "folder") return node.node.children.map(toChangeNode);
     if (node.type === "file") {
       return node.file.edits.map((_, index) => ({
         type: "edit" as const,
@@ -233,13 +280,22 @@ export class ChangedFilesTree implements vscode.TreeDataProvider<ChangeNode> {
   }
 }
 
-interface UsageNode {
-  agentKey: string;
-  label: string;
-  description: string;
+function toChangeNode(node: ChangeTreeNode): ChangeNode {
+  return node.type === "folder" ? { type: "folder", node } : { type: "file", file: node.file };
 }
 
-/** Token totals per agent, accumulated across sessions. */
+/** An agent's totals, expandable into the individual measures. */
+type UsageNode =
+  | { type: "agent"; agentKey: string; totals: UsageTotals }
+  | { type: "metric"; agentKey: string; label: string; value: string; icon: string };
+
+/**
+ * Token totals per agent, accumulated across sessions.
+ *
+ * Tokens alone do not say much about cost: an agent that burns twenty minutes
+ * and two hundred tool calls to spend the same tokens is a different
+ * proposition, so duration and tool-call counts sit alongside them.
+ */
 export class UsageStatsTree implements vscode.TreeDataProvider<UsageNode> {
   private readonly changed = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.changed.event;
@@ -251,23 +307,73 @@ export class UsageStatsTree implements vscode.TreeDataProvider<UsageNode> {
   }
 
   getTreeItem(node: UsageNode): vscode.TreeItem {
-    const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
-    item.description = node.description;
+    if (node.type === "metric") {
+      const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
+      item.description = node.value;
+      item.iconPath = new vscode.ThemeIcon(node.icon);
+      item.id = `usage:${node.agentKey}:${node.label}`;
+      return item;
+    }
+
+    const item = new vscode.TreeItem(node.agentKey, vscode.TreeItemCollapsibleState.Collapsed);
+    const { totals } = node;
+    item.description =
+      `${formatTokens(totals.totalTokens)} tokens · ` +
+      `${totals.turns} turn${totals.turns === 1 ? "" : "s"}` +
+      (totals.durationMs > 0 ? ` · ${formatDuration(totals.durationMs)}` : "");
     item.iconPath = new vscode.ThemeIcon("dashboard");
+    item.id = `usage:${node.agentKey}`;
     return item;
   }
 
-  async getChildren(): Promise<UsageNode[]> {
-    await this.tracker.load();
-    return this.tracker.entries().map(({ agentKey, totals }) => ({
+  async getChildren(node?: UsageNode): Promise<UsageNode[]> {
+    if (!node) {
+      await this.tracker.load();
+      return this.tracker.entries().map(({ agentKey, totals }) => ({
+        type: "agent" as const,
+        agentKey,
+        totals,
+      }));
+    }
+    if (node.type !== "agent") return [];
+
+    const { agentKey, totals } = node;
+    const metric = (label: string, value: string, icon: string): UsageNode => ({
+      type: "metric",
       agentKey,
-      label: agentKey,
-      description:
-        `${formatTokens(totals.totalTokens)} total · ` +
-        `${formatTokens(totals.inputTokens)} in · ` +
-        `${formatTokens(totals.outputTokens)} out · ` +
-        `${totals.turns} turn${totals.turns === 1 ? "" : "s"}`,
-    }));
+      label,
+      value,
+      icon,
+    });
+
+    const rows = [
+      metric("Turns", String(totals.turns), "comment-discussion"),
+      metric("Total tokens", formatTokens(totals.totalTokens), "symbol-numeric"),
+      metric("Input", formatTokens(totals.inputTokens), "arrow-down"),
+      metric("Output", formatTokens(totals.outputTokens), "arrow-up"),
+    ];
+    // Optional in ACP: an agent that never reports these should not be shown
+    // a row of zeros implying it did no thinking and cached nothing.
+    if (totals.thoughtTokens > 0) {
+      rows.push(metric("Reasoning", formatTokens(totals.thoughtTokens), "lightbulb"));
+    }
+    if (totals.cachedReadTokens > 0) {
+      rows.push(metric("Cached reads", formatTokens(totals.cachedReadTokens), "database"));
+    }
+    if (totals.toolCalls > 0) {
+      rows.push(metric("Tool calls", String(totals.toolCalls), "tools"));
+    }
+    if (totals.durationMs > 0) {
+      rows.push(metric("Time working", formatDuration(totals.durationMs), "watch"));
+      rows.push(
+        metric(
+          "Average turn",
+          formatDuration(totals.durationMs / Math.max(1, totals.turns)),
+          "dashboard",
+        ),
+      );
+    }
+    return rows;
   }
 }
 
@@ -353,14 +459,36 @@ function iconForStatus(status: string): string {
  * Every agent edit in chronological order, newest first — the cross-file view
  * that the per-file Changes tree does not give you.
  */
+/**
+ * Every agent edit in time order, narrowed by an optional filter.
+ *
+ * Unfiltered it answers "what just happened"; filtered it answers "what did
+ * this agent do this morning", which is the question that actually comes up
+ * once a log has more than a session or two in it.
+ */
 export class TimelineTree implements vscode.TreeDataProvider<EditRecord> {
   private readonly changed = new vscode.EventEmitter<void>();
   readonly onDidChangeTreeData = this.changed.event;
+  private filter: TimelineFilter = { ...DEFAULT_FILTER };
 
   constructor(private readonly history: ChangeHistory) {}
 
   refresh(): void {
     this.changed.fire();
+  }
+
+  get currentFilter(): TimelineFilter {
+    return this.filter;
+  }
+
+  setFilter(filter: TimelineFilter): void {
+    this.filter = filter;
+    this.refresh();
+  }
+
+  /** What the view is showing, for the view title. */
+  describe(): string {
+    return isFiltered(this.filter) ? describeFilter(this.filter) : "";
   }
 
   getTreeItem(edit: EditRecord): vscode.TreeItem {
@@ -381,11 +509,16 @@ export class TimelineTree implements vscode.TreeDataProvider<EditRecord> {
     return item;
   }
 
+  /** All edits matching the filter, newest first. */
+  matching(): EditRecord[] {
+    return filterEdits(
+      this.history.files().flatMap((file) => file.edits),
+      this.filter,
+    ).sort((a, b) => b.at - a.at);
+  }
+
   getChildren(): EditRecord[] {
-    return this.history
-      .files()
-      .flatMap((file) => file.edits)
-      .sort((a, b) => b.at - a.at)
-      .slice(0, 200);
+    // Capped: the tree is for recent work, and the full log can be very long.
+    return this.matching().slice(0, 200);
   }
 }

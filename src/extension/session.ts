@@ -143,6 +143,11 @@ export class Session implements Client {
     return this.turns;
   }
 
+  /** Distinct tool calls seen so far, for per-turn usage accounting. */
+  toolCallCount(): number {
+    return this.toolCalls.size;
+  }
+
   setTurns(turns: Turn[]): void {
     this.turns = turns;
     this.assistantTurn = null;
