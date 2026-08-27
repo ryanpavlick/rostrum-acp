@@ -2,6 +2,26 @@
 
 ## 0.19.0
 
+First pre-release published to the VS Code Marketplace, plus the feature gaps
+found by reading competing ACP clients' shipped packages.
+
+- Mermaid diagrams render in their own webview, kept apart from the transcript
+  because Mermaid builds DOM from strings; its SVG is parsed inertly and
+  adopted as a node. The 3.3 MB bundle loads only when a diagram is opened.
+- Maths renders inline with KaTeX, parsed inertly for the same reason. Prose
+  like "it cost $5 and $10" is not mistaken for maths.
+- Live conversations are bounded by `rostrum.maxLiveSessions` and released
+  after `rostrum.sessionIdleMinutes` idle — but never when the agent supports
+  neither session/load nor session/resume, since it could not give them back.
+  Reaching the cap asks which conversation should give way.
+- Only the newest forty turns are built into the transcript, with the rest one
+  click away, so a long conversation no longer holds every block in the DOM.
+- Streamed updates coalesce to one repaint per frame.
+- Shift+Tab cycles permission modes; Ctrl+Alt+L attaches the editor selection.
+- New commands: open the last agent edit for a file, copy the session id, and
+  open a conversation in a chosen directory beneath the workspace.
+- Plans, queues, attachments and turns are named for assistive technology.
+
 First pre-release published to the VS Code Marketplace. Mostly packaging and
 listing work, plus beta support/reset polish.
 
