@@ -54,6 +54,23 @@ let fileQuery = "";
 
 const turnNodes = new Map<string, HTMLElement>();
 
+/**
+ * A long conversation holds thousands of nodes, and every one of them costs on
+ * every layout. Only the newest turns are built; the rest stay in `state` and
+ * are one click away. `showAll` latches once the user asks for the whole
+ * thing, so it does not collapse under them on the next token.
+ */
+const TURN_WINDOW = 40;
+let showAllTurns = false;
+/** Which conversation the expansion above belongs to. */
+let expandedSessionId: string | null = null;
+
+/** The turns currently built into the DOM. */
+function windowedTurns(): Turn[] {
+  if (showAllTurns || state.turns.length <= TURN_WINDOW) return state.turns;
+  return state.turns.slice(state.turns.length - TURN_WINDOW);
+}
+
 // --- element helpers --------------------------------------------------------
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -634,9 +651,14 @@ function flushTurns(): void {
 }
 
 function upsertTurn(turn: Turn): void {
+  const existing = turnNodes.get(turn.id);
+  // Outside the window and not already on screen: it lives in `state` and will
+  // be built if the user asks for the earlier turns. Appending it here would
+  // put an old turn at the bottom, out of order.
+  if (!existing && !windowedTurns().some((candidate) => candidate.id === turn.id)) return;
+
   const wasAtBottom = atBottom();
   const fresh = renderTurn(turn);
-  const existing = turnNodes.get(turn.id);
 
   if (existing) existing.replaceWith(fresh);
   else log.append(fresh);
@@ -655,7 +677,20 @@ function renderAll(): void {
   }
   log.replaceChildren();
   turnNodes.clear();
-  for (const turn of state.turns) upsertTurn(turn);
+
+  const shown = windowedTurns();
+  const hidden = state.turns.length - shown.length;
+  if (hidden > 0) {
+    const more = el("button", "show-earlier", `Show ${hidden} earlier turn${hidden === 1 ? "" : "s"}`);
+    more.type = "button";
+    more.onclick = () => {
+      showAllTurns = true;
+      expandedSessionId = state.sessionId;
+      renderAll();
+    };
+    log.append(more);
+  }
+  for (const turn of shown) upsertTurn(turn);
 
   agentSelect.replaceChildren();
   for (const agent of state.agents) {
@@ -1070,6 +1105,13 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
   const message = event.data;
   switch (message.type) {
     case "state":
+      // Expanding is per conversation. A state push happens constantly during
+      // a turn, so only a genuine switch collapses the window again — never a
+      // token arriving.
+      if (message.state.sessionId !== expandedSessionId) {
+        showAllTurns = false;
+        expandedSessionId = null;
+      }
       Object.assign(state, message.state);
       renderAll();
       break;
@@ -1127,6 +1169,13 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
       renderUsage();
       break;
     case "revealTurn": {
+      // The outline can point at a turn the window has not built. Expand
+      // first, so jumping to an old turn always lands somewhere.
+      if (!turnNodes.has(message.turnId) && state.turns.some((t) => t.id === message.turnId)) {
+        showAllTurns = true;
+        expandedSessionId = state.sessionId;
+        renderAll();
+      }
       const node = turnNodes.get(message.turnId);
       if (node) {
         node.scrollIntoView({ behavior: "smooth", block: "start" });
