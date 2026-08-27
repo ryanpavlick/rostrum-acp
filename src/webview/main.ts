@@ -13,6 +13,12 @@ import type {
 
 import { parseMarkdown, type Inline, type MdNode } from "./markdown.js";
 import { highlight } from "./highlight.js";
+import {
+  shouldCollapse,
+  shouldRenderUpdate,
+  windowTurns,
+  type TranscriptWindow,
+} from "./transcript.js";
 
 declare function acquireVsCodeApi(): { postMessage(message: ViewMessage): void };
 const vscode = acquireVsCodeApi();
@@ -60,15 +66,13 @@ const turnNodes = new Map<string, HTMLElement>();
  * are one click away. `showAll` latches once the user asks for the whole
  * thing, so it does not collapse under them on the next token.
  */
-const TURN_WINDOW = 40;
 let showAllTurns = false;
 /** Which conversation the expansion above belongs to. */
 let expandedSessionId: string | null = null;
 
-/** The turns currently built into the DOM. */
-function windowedTurns(): Turn[] {
-  if (showAllTurns || state.turns.length <= TURN_WINDOW) return state.turns;
-  return state.turns.slice(state.turns.length - TURN_WINDOW);
+/** The turns currently built into the DOM. See `transcript.ts` for the rules. */
+function currentWindow(): TranscriptWindow {
+  return windowTurns(state.turns, showAllTurns);
 }
 
 // --- element helpers --------------------------------------------------------
@@ -666,10 +670,7 @@ function flushTurns(): void {
 
 function upsertTurn(turn: Turn): void {
   const existing = turnNodes.get(turn.id);
-  // Outside the window and not already on screen: it lives in `state` and will
-  // be built if the user asks for the earlier turns. Appending it here would
-  // put an old turn at the bottom, out of order.
-  if (!existing && !windowedTurns().some((candidate) => candidate.id === turn.id)) return;
+  if (!shouldRenderUpdate(turn.id, currentWindow(), existing !== undefined)) return;
 
   const wasAtBottom = atBottom();
   const fresh = renderTurn(turn);
@@ -692,8 +693,7 @@ function renderAll(): void {
   log.replaceChildren();
   turnNodes.clear();
 
-  const shown = windowedTurns();
-  const hidden = state.turns.length - shown.length;
+  const { shown, hidden } = currentWindow();
   if (hidden > 0) {
     const more = el("button", "show-earlier", `Show ${hidden} earlier turn${hidden === 1 ? "" : "s"}`);
     more.type = "button";
@@ -1122,7 +1122,7 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
       // Expanding is per conversation. A state push happens constantly during
       // a turn, so only a genuine switch collapses the window again — never a
       // token arriving.
-      if (message.state.sessionId !== expandedSessionId) {
+      if (shouldCollapse(expandedSessionId, message.state.sessionId)) {
         showAllTurns = false;
         expandedSessionId = null;
       }
