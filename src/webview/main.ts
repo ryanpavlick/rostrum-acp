@@ -440,6 +440,8 @@ function wrapInline(tag: "strong" | "em" | "s", children: Inline[]): HTMLElement
   return node;
 }
 
+const DIAGRAM_LANGS = new Set(["mermaid", "mmd"]);
+
 function renderCodeBlock(lang: string, text: string): HTMLElement {
   const holder = el("div", "code-wrap");
   const pre = el("pre", "code");
@@ -451,6 +453,18 @@ function renderCodeBlock(lang: string, text: string): HTMLElement {
   }
 
   const label = el("span", "code-lang", lang || "text");
+
+  // Mermaid is not rendered here on purpose: it builds DOM from strings, and
+  // this renderer's guarantee is that agent output never becomes markup. The
+  // viewer it opens into is quarantined for exactly that reason.
+  if (DIAGRAM_LANGS.has(lang.toLowerCase())) {
+    const view = el("button", "copy", "View diagram");
+    view.type = "button";
+    view.setAttribute("aria-label", `Open this ${lang} diagram in the viewer`);
+    view.onclick = () => post({ type: "openDiagram", source: text, lang });
+    holder.append(view);
+  }
+
   const copy = el("button", "copy", "Copy");
   copy.type = "button";
   copy.setAttribute("aria-label", `Copy ${lang || "code"} block`);

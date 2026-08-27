@@ -231,6 +231,8 @@ export type ViewMessage =
   /** Bring an already-running conversation on screen by controller id. */
   | { type: "revealSession"; controllerId: string }
   | { type: "openDiff"; path: string; line?: number }
+  /** Show a fenced diagram in the quarantined viewer. */
+  | { type: "openDiagram"; source: string; lang: string }
   | { type: "forkSession" }
   | { type: "setConfigOption"; id: string; value: string | boolean }
   | { type: "setPermissionMode"; mode: PermissionModeId }

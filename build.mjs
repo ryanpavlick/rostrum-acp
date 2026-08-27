@@ -28,6 +28,23 @@ const webview = {
   logLevel: "info",
 };
 
+/**
+ * The diagram viewer, bundled separately because Mermaid is ~3.3 MB and the
+ * transcript must not pay for it. Loaded only when a diagram is opened.
+ */
+const diagram = {
+  entryPoints: ["src/webview/diagram.ts"],
+  bundle: true,
+  outfile: "out/webview/diagram.js",
+  platform: "browser",
+  target: "es2022",
+  format: "iife",
+  // Mermaid is large and never read by a human in this form.
+  minify: true,
+  sourcemap: false,
+  logLevel: "info",
+};
+
 /** Detached supervisor used to retain ACP agents across extension-host reloads. */
 const manager = {
   entryPoints: ["src/manager.ts"],
@@ -49,10 +66,15 @@ async function copyStyles() {
 await copyStyles();
 
 if (watch) {
-  for (const cfg of [extension, webview, manager]) {
+  for (const cfg of [extension, webview, diagram, manager]) {
     const ctx = await esbuild.context(cfg);
     await ctx.watch();
   }
 } else {
-  await Promise.all([esbuild.build(extension), esbuild.build(webview), esbuild.build(manager)]);
+  await Promise.all([
+    esbuild.build(extension),
+    esbuild.build(webview),
+    esbuild.build(diagram),
+    esbuild.build(manager),
+  ]);
 }

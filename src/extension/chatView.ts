@@ -1,5 +1,6 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { DiagramPanel } from "./diagram.js";
 import type { ContentBlock, SessionInfo } from "@agentclientprotocol/sdk";
 import type {
   Block,
@@ -473,6 +474,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // Per-agent definitions override a global server with the same name,
     // while the global setting remains convenient for shared infrastructure.
     return mcpServersFromConfig({ ...configured, ...agentServers }, connection.mcpCaps);
+  }
+
+  /** Built on first use: the diagram bundle is large and rarely wanted. */
+  private diagramPanel: DiagramPanel | undefined;
+
+  private get diagrams(): DiagramPanel {
+    this.diagramPanel ??= new DiagramPanel(this.context.extensionUri);
+    return this.diagramPanel;
   }
 
   private workspaceRoot(): string {
@@ -1282,6 +1291,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case "deleteSession":
         await this.deleteSession(message.sessionId);
         break;
+      case "openDiagram":
+        this.diagrams.show(message.source, `${message.lang} diagram`);
+        break;
       case "openDiff":
         await vscode.window.showTextDocument(vscode.Uri.file(message.path), {
           preview: true,
@@ -1917,6 +1929,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   dispose(): void {
+    this.diagramPanel?.dispose();
     for (const agentKey of [...this.connections.keys()]) this.disconnect(agentKey);
     this.sessions.clear();
     this.activeId = null;

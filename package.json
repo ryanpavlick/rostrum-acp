@@ -540,7 +540,8 @@
     "typescript": "^5.7.0"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^1.4.0"
+    "@agentclientprotocol/sdk": "^1.4.0",
+    "mermaid": "^11.17.2"
   },
   "allowScripts": {
     "esbuild@0.25.12": true
