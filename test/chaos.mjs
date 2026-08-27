@@ -30,6 +30,32 @@ const stateFile = path.join(tmp, "state", "agent-manager.json");
 const definition = { command: process.execPath, args: [agentScript] };
 
 const spawned = [];
+
+/**
+ * Stop everything this run started. The supervisor is detached and spawns the
+ * agent itself, so SIGKILL alone orphans the agent — ask it to stop first.
+ * This has to run on failure as well as success: an orphaned supervisor
+ * survives the run, loads the machine, and makes the next run fail too.
+ */
+let tornDown = false;
+async function teardown() {
+  if (tornDown) return;
+  tornDown = true;
+  try {
+    const last = await readState(500).catch(() => undefined);
+    if (last) await control(last, { type: "stop" }).catch(() => undefined);
+    await sleep(300);
+  } catch { /* best effort */ }
+  for (const child of spawned) child.kill("SIGKILL");
+  await fs.rm(tmp, { recursive: true, force: true }).catch(() => undefined);
+}
+
+process.on("uncaughtException", async (error) => {
+  await teardown();
+  console.error(error);
+  process.exit(1);
+});
+
 function startManager() {
   const child = spawn(process.execPath, [managerScript, stateFile], { stdio: "ignore" });
   spawned.push(child);
@@ -141,22 +167,30 @@ let state = await readState();
   assert.equal(client.handshake.reused, false);
 
   const delivered = new Set();
+  // Take everything this attachment has seen so far. Must be called before an
+  // attachment is discarded as well as after a new one replays, or lines that
+  // arrive in between are counted as losses the supervisor never caused.
+  const harvest = (from) => {
+    for (const line of from.lines) if (line.done) delivered.add(line.done);
+    from.lines.length = 0;
+  };
+
   // Twenty cycles of "window closed, window reopened" while the agent is
   // answering. Every reply must arrive exactly once, at some attachment.
   for (let round = 0; round < 20; round += 1) {
     client.send({ cmd: "emit", bytes: 16, tag: `round-${round}`, delayMs: 15 });
     await sleep(5);
+    harvest(client);
     client.close();
     await sleep(10);
     client = await attach(state, "churn");
     assert.equal(client.handshake.reused, true, `round ${round} must reuse the same agent`);
-    for (const line of client.lines) if (line.done) delivered.add(line.done);
-    client.lines.length = 0;
+    harvest(client);
   }
 
   client.send({ cmd: "echo", text: "settled" });
   await client.waitFor((line) => line.echo === "settled");
-  for (const line of client.lines) if (line.done) delivered.add(line.done);
+  harvest(client);
 
   assert.equal(delivered.size, 20, `every round must be delivered once (got ${delivered.size})`);
   ok("twenty detach/reattach cycles mid-stream lose nothing and reuse one agent");
@@ -310,8 +344,5 @@ let state = await readState();
   for (const client of live) client.close();
 }
 
-await control(state, { type: "stop" }).catch(() => undefined);
-await sleep(300);
-for (const child of spawned) child.kill("SIGKILL");
-await fs.rm(tmp, { recursive: true, force: true });
+await teardown();
 console.log(`\nPASS: ${passed} chaos checks`);
