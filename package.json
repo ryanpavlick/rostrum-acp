@@ -278,6 +278,10 @@
       {
         "command": "rostrum.copySessionId",
         "title": "Rostrum: Copy Session ID"
+      },
+      {
+        "command": "rostrum.newSessionInDirectory",
+        "title": "Rostrum: New Session in Directory…"
       }
     ],
     "menus": {

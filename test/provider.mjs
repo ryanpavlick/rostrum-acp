@@ -88,7 +88,8 @@ class ScriptedAgent {
     this.exit?.(code);
   }
 
-  async newSession() {
+  async newSession(params) {
+    this.lastNewSession = params;
     if (this.requireAuth) throw new Error("unauthenticated: run `agent login` first");
     this.nextSessionId += 1;
     return {
@@ -874,6 +875,21 @@ ok("active editor file and selection attach to the next prompt");
   for (const entry of provider.controllers()) entry.updatedAt = 0;
   assert.equal(await provider.sweepIdleSessions(), 0, "zero disables idle closing outright");
   ok("setting the idle window to zero switches idle closing off");
+}
+
+// --- a conversation can be rooted in a subdirectory -------------------------
+{
+  const { provider, agent } = await build();
+  await provider.startAgent("scripted");
+  const root = stub.workspaceFolders[0];
+  const sub = path.join(root, "packages", "api");
+
+  await provider.newSession(undefined, sub);
+  assert.equal(agent.lastNewSession.cwd, sub, "the chosen directory reaches session/new");
+
+  await provider.newSession();
+  assert.equal(agent.lastNewSession.cwd, root, "without one, the workspace root is used");
+  ok("a conversation can be opened in a subdirectory of the workspace");
 }
 
 await fs.rm(tmp, { recursive: true, force: true });

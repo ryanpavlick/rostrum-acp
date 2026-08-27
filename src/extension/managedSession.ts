@@ -73,6 +73,12 @@ export class ManagedSession {
    */
   readOnly = false;
 
+  /**
+   * The directory this conversation was opened in, when it is not the first
+   * workspace folder. Fixed at `session/new` and never changed after.
+   */
+  cwd: string | null = null;
+
   private state: SessionLifecycle = "idle";
 
   constructor(

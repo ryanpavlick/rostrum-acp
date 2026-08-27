@@ -175,6 +175,10 @@ export function activate(context: vscode.ExtensionContext): void {
       await diffs.open(edit);
     }),
 
+    vscode.commands.registerCommand("rostrum.newSessionInDirectory", () =>
+      chat.newSessionInDirectory(),
+    ),
+
     vscode.commands.registerCommand("rostrum.copySessionId", async () => {
       // The agent's own id, not the controller id: this is for pasting into a
       // bug report or the agent's CLI, where only the protocol id means anything.

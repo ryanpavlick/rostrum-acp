@@ -160,6 +160,36 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
    * Deliberately not sorted by recency: these back a tab strip, and chips that
    * reorder themselves whenever a background turn emits a token are unusable.
    */
+  /**
+   * Start a conversation rooted somewhere other than the first workspace
+   * folder. The directory is confined to the workspace: an agent given a cwd
+   * outside it would sit outside the guard everything else honours.
+   */
+  async newSessionInDirectory(): Promise<void> {
+    const roots = this.workspaceRoots();
+    const picked = await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      defaultUri: vscode.Uri.file(this.workspaceRoot()),
+      openLabel: "Start session here",
+      title: "Working directory for the new conversation",
+    });
+    const chosen = picked?.[0]?.fsPath;
+    if (!chosen) return;
+
+    const inside = roots.some(
+      (root) => chosen === root || chosen.startsWith(root.endsWith(path.sep) ? root : root + path.sep),
+    );
+    if (!inside) {
+      void vscode.window.showErrorMessage(
+        "Choose a directory inside the open workspace. Rostrum confines agents to the workspace roots.",
+      );
+      return;
+    }
+    await this.newSession(undefined, chosen);
+  }
+
   /** The live controllers themselves. Used by tests to age them. */
   controllers(): ManagedSession[] {
     return [...this.sessions.values()];
@@ -1039,21 +1069,28 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (this.activeId === controller.id) this.activeId = null;
   }
 
-  /** Open a fresh conversation, on the active agent unless one is named. */
-  async newSession(target?: AgentConnection): Promise<void> {
+  /**
+   * Open a fresh conversation, on the active agent unless one is named.
+   *
+   * ACP fixes a session's working directory at `session/new`, so `cwd` is
+   * chosen here or not at all — there is no protocol move that repoints a
+   * conversation already under way.
+   */
+  async newSession(target?: AgentConnection, cwd?: string): Promise<void> {
     const connection = target ?? this.active()?.connection ??
       (this.lastAgentKey ? this.connections.get(this.lastAgentKey) : undefined);
     if (!connection || connection.disposed) return;
     if (!(await this.makeRoom())) return;
 
     const controller = this.createController(connection);
+    controller.cwd = cwd ?? null;
     // Updates can arrive before `session/new` answers; the router needs
     // somewhere to put them until the id is known.
     connection.router.setProvisional(controller.session);
     try {
       const open = () =>
         connection.agent.newSession({
-          cwd: this.workspaceRoot(),
+          cwd: cwd ?? this.workspaceRoot(),
           mcpServers: this.mcpServers(connection),
           ...this.additionalDirectories(connection),
         });
