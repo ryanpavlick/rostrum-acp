@@ -35,7 +35,7 @@ Feature gaps found by reading competing ACP clients' shipped packages:
   adopted as a node. The 3.3 MB bundle loads only when a diagram is opened.
 - Maths renders inline with KaTeX, parsed inertly for the same reason. Prose
   like "it cost $5 and $10" is not mistaken for maths.
-- Live conversations are bounded by `rostrum.maxLiveSessions` and released
+- Live conversations are bounded by `rostrum.maxLiveSessions` (0 for no limit) and released
   after `rostrum.sessionIdleMinutes` idle — but never when the agent supports
   neither session/load nor session/resume, since it could not give them back.
   Reaching the cap asks which conversation should give way.

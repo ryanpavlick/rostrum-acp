@@ -465,8 +465,8 @@
         "rostrum.maxLiveSessions": {
           "type": "integer",
           "default": 8,
-          "minimum": 1,
-          "description": "How many conversations stay live at once. Each live conversation holds an ACP session on a running agent. Reaching the limit asks which session to close rather than choosing for you."
+          "minimum": 0,
+          "description": "How many conversations stay live at once. Each live conversation holds an ACP session on a running agent, so this bounds how many agent processes Rostrum keeps. Reaching the limit asks which conversation to close rather than choosing for you. Set to 0 for no limit."
         },
         "rostrum.sessionIdleMinutes": {
           "type": "integer",

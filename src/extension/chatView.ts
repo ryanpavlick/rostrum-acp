@@ -1013,8 +1013,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.onSessionsChanged();
   }
 
+  /**
+   * How many conversations may be live at once, or `Infinity` for no limit.
+   *
+   * Zero means the user has taken the decision back: the default exists to
+   * stop an unaware user accumulating subprocesses, not to overrule someone
+   * who knows what their machine can carry.
+   */
   private liveCap(): number {
     const configured = this.config().get<number>("maxLiveSessions");
+    if (configured === 0) return Infinity;
     return typeof configured === "number" && configured > 0 ? configured : 8;
   }
 

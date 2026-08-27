@@ -892,5 +892,35 @@ ok("active editor file and selection attach to the next prompt");
   ok("a conversation can be opened in a subdirectory of the workspace");
 }
 
+// --- the ceiling can be taken off entirely ----------------------------------
+{
+  const { provider } = await build();
+  stub.config.maxLiveSessions = 0;
+  await provider.startAgent("scripted");
+  // Comfortably past the default of 8: zero has to mean no limit, not the
+  // default, or the setting quietly overrules the person who set it.
+  for (let index = 0; index < 11; index += 1) await provider.newSession();
+  assert.equal(provider.liveSessions().length, 12, "zero lifts the ceiling rather than falling back");
+  ok("setting the live-session limit to zero removes it");
+}
+
+{
+  const { provider } = await build();
+  stub.config.maxLiveSessions = 2;
+  await provider.startAgent("scripted");
+  await provider.newSession();
+  assert.equal(provider.liveSessions().length, 2, "a lower limit is honoured");
+  // Nothing is dehydratable — the scripted agent cannot reload — so the third
+  // is refused rather than silently taking one of the other two.
+  await provider.newSession();
+  assert.equal(provider.liveSessions().length, 2, "the limit holds when nothing can be released");
+  assert.match(
+    stub.notifications.at(-1),
+    /busy or cannot be restored/,
+    "and says why, rather than doing nothing visible",
+  );
+  ok("a custom limit is honoured and refuses rather than evicting blindly");
+}
+
 await fs.rm(tmp, { recursive: true, force: true });
 console.log(`\nPASS: ${passed} provider checks`);

@@ -15,6 +15,7 @@ interface Stub {
   openDialogResult: unknown[] | undefined;
   activeTextEditor: unknown;
   visibleTextEditors: unknown[];
+  activeColorTheme: { kind: number };
   diagnostics: unknown[];
   workspaceFiles: Uri[];
   files: Map<string, string>;
@@ -38,6 +39,7 @@ export const stub: Stub = (scope.__rostrumVscodeStub ??= {
   openDialogResult: undefined as unknown[] | undefined,
   activeTextEditor: undefined as unknown,
   visibleTextEditors: [] as unknown[],
+  activeColorTheme: { kind: 2 },
   diagnostics: [] as unknown[],
   workspaceFiles: [] as Uri[],
   files: new Map<string, string>(),
@@ -49,6 +51,7 @@ export const stub: Stub = (scope.__rostrumVscodeStub ??= {
     this.openDialogResult = undefined;
     this.activeTextEditor = undefined;
     this.visibleTextEditors = [];
+    this.activeColorTheme = { kind: 2 };
     this.diagnostics = [];
     this.workspaceFiles = [];
     this.files.clear();
@@ -109,6 +112,9 @@ export const window = {
   get visibleTextEditors() {
     return stub.visibleTextEditors;
   },
+  get activeColorTheme() {
+    return stub.activeColorTheme;
+  },
   async showQuickPick(items: unknown) {
     const chosen = stub.quickPickResult;
     stub.quickPickResult = undefined;
@@ -126,12 +132,27 @@ export const window = {
     stub.nextNotificationChoice = undefined;
     return choice;
   },
+  // Warnings and errors land in the same list as information messages: a test
+  // asserting the user was told something should not care which severity the
+  // code chose to say it with.
+  async showWarningMessage(message: string, ..._actions: string[]) {
+    stub.notifications.push(message);
+    const choice = stub.nextNotificationChoice;
+    stub.nextNotificationChoice = undefined;
+    return choice;
+  },
+  async showErrorMessage(message: string, ..._actions: string[]) {
+    stub.notifications.push(message);
+    return undefined;
+  },
   async showTextDocument() {
     return undefined;
   },
 };
 
 export const DiagnosticSeverity = { Error: 0, Warning: 1, Information: 2, Hint: 3 };
+export const ColorThemeKind = { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 };
+export const ViewColumn = { Active: -1, Beside: -2, One: 1, Two: 2, Three: 3 };
 
 export const languages = {
   getDiagnostics(uri?: Uri) {
