@@ -487,6 +487,12 @@ function renderResource(block: Extract<Block, { kind: "resource" }>): HTMLElemen
   return details;
 }
 
+const PLAN_STATUS_TEXT: Record<string, string> = {
+  pending: "To do",
+  in_progress: "In progress",
+  completed: "Done",
+};
+
 const TOOL_STATUS_TEXT: Record<string, string> = {
   pending: "pending",
   in_progress: "running",
@@ -577,8 +583,14 @@ function renderBlock(block: Block): HTMLElement {
   }
 }
 
+const TURN_ROLE_TEXT: Record<string, string> = { user: "You", agent: "Agent", system: "Rostrum" };
+
 function renderTurn(turn: Turn): HTMLElement {
   const node = el("div", `turn ${turn.role}`);
+  // Each turn is its own region so a screen reader can move between them and
+  // hear who is speaking, rather than one undifferentiated run of text.
+  node.setAttribute("role", "article");
+  node.setAttribute("aria-label", TURN_ROLE_TEXT[turn.role] ?? turn.role);
   for (const block of turn.blocks) node.append(renderBlock(block));
   return node;
 }
@@ -823,12 +835,20 @@ function renderPlan(): void {
   details.open = done < state.plan.length;
   details.append(el("summary", undefined, `Plan — ${done}/${state.plan.length} done`));
 
+  const list = el("div", "plan-list");
+  list.setAttribute("role", "list");
   for (const entry of state.plan) {
     const row = el("div", `plan-row ${entry.status}`);
+    row.setAttribute("role", "listitem");
     const mark = entry.status === "completed" ? "\u2713" : entry.status === "in_progress" ? "\u2192" : "\u25cb";
-    row.append(el("span", "plan-mark", mark), el("span", "plan-text", entry.content));
-    details.append(row);
+    const glyph = el("span", "plan-mark", mark);
+    // The glyph repeats what the item's name already says.
+    glyph.setAttribute("aria-hidden", "true");
+    row.setAttribute("aria-label", `${PLAN_STATUS_TEXT[entry.status] ?? entry.status}: ${entry.content}`);
+    row.append(glyph, el("span", "plan-text", entry.content));
+    list.append(row);
   }
+  details.append(list);
   planHost.append(details);
 }
 
@@ -837,11 +857,16 @@ function renderQueue(): void {
   if (state.queued.length === 0) return;
 
   const wrap = el("div", "queue");
+  wrap.setAttribute("role", "list");
+  wrap.setAttribute("aria-label", `Queued prompts (${state.queued.length})`);
   wrap.append(el("div", "queue-title", `Queued (${state.queued.length})`));
   state.queued.forEach((text, index) => {
     const row = el("div", "queue-row");
+    row.setAttribute("role", "listitem");
     row.append(el("span", "queue-text", text));
     const remove = el("button", "ghost", "\u00d7");
+    remove.type = "button";
+    remove.setAttribute("aria-label", `Remove queued prompt ${index + 1}: ${text.slice(0, 60)}`);
     remove.onclick = () => post({ type: "unqueuePrompt", index });
     row.append(remove);
     wrap.append(row);
@@ -854,10 +879,15 @@ function renderAttachments(): void {
   if (attachmentNames.length === 0) return;
 
   const wrap = el("div", "attachments");
+  wrap.setAttribute("role", "list");
+  wrap.setAttribute("aria-label", `Attachments (${attachmentNames.length})`);
   attachmentNames.forEach((name, index) => {
     const chip = el("span", "attach-chip");
+    chip.setAttribute("role", "listitem");
     chip.append(el("span", undefined, name));
     const remove = el("button", "ghost", "\u00d7");
+    remove.type = "button";
+    remove.setAttribute("aria-label", `Remove attachment ${name}`);
     remove.onclick = () => post({ type: "removeAttachment", index });
     chip.append(remove);
     wrap.append(chip);
