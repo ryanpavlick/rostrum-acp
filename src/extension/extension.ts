@@ -152,6 +152,13 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand("rostrum.openHistoryDiff", (edit) => diffs.open(edit)),
 
+    // Sweep on a coarse timer: idle windows are measured in minutes, so a
+    // minute of granularity is ample and costs nothing when nothing is stale.
+    new vscode.Disposable((() => {
+      const timer = setInterval(() => void chat.sweepIdleSessions(), 60_000);
+      return () => clearInterval(timer);
+    })()),
+
     vscode.commands.registerCommand("rostrum.openLastEditForFile", async (resource?: vscode.Uri) => {
       const target = resource ?? vscode.window.activeTextEditor?.document.uri;
       if (!target) {

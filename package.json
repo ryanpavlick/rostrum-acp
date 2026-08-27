@@ -457,6 +457,18 @@
           ],
           "default": "all",
           "description": "Which live sessions to restore after a VS Code reload: all, the five most recent, or only the previously active session."
+        },
+        "rostrum.maxLiveSessions": {
+          "type": "integer",
+          "default": 8,
+          "minimum": 1,
+          "description": "How many conversations stay live at once. Each live conversation holds an ACP session on a running agent. Reaching the limit asks which session to close rather than choosing for you."
+        },
+        "rostrum.sessionIdleMinutes": {
+          "type": "integer",
+          "default": 60,
+          "minimum": 0,
+          "description": "Close a conversation that has been idle and off-screen this long, keeping its transcript loadable. Set to 0 to never close on idle. Conversations whose agent supports neither session/load nor session/resume are never closed this way, because they could not be reopened."
         }
       }
     },

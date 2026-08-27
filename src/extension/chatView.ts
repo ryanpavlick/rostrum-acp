@@ -160,6 +160,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
    * Deliberately not sorted by recency: these back a tab strip, and chips that
    * reorder themselves whenever a background turn emits a token are unusable.
    */
+  /** The live controllers themselves. Used by tests to age them. */
+  controllers(): ManagedSession[] {
+    return [...this.sessions.values()];
+  }
+
   liveSessions(): LiveSession[] {
     return [...this.sessions.values()]
       .map((controller) => ({
@@ -931,6 +936,102 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       });
   }
 
+  /**
+   * A dehydrated session is a transcript whose ACP session has been let go.
+   * Only worth doing when the agent can actually give it back: on an agent
+   * advertising neither load nor resume, dehydrating would quietly turn live
+   * work into read-only history, so those sessions are never chosen.
+   */
+  private canRehydrate(controller: ManagedSession): boolean {
+    const caps = controller.connection.capabilities;
+    return caps.loadSession === true || caps.resumeSession === true;
+  }
+
+  /** Idle, not on screen, nothing outstanding, and restorable. */
+  private dehydratable(controller: ManagedSession): boolean {
+    return (
+      !controller.readOnly &&
+      !controller.busy &&
+      controller.pending.length === 0 &&
+      controller.queue.length === 0 &&
+      !this.isActive(controller) &&
+      this.canRehydrate(controller)
+    );
+  }
+
+  /**
+   * Let go of a session's ACP state while keeping its transcript loadable.
+   * The stored transcript is the durable copy, so it is written before the
+   * session goes; reopening runs the ordinary load/resume path.
+   */
+  private async dehydrate(controller: ManagedSession, reason: string): Promise<void> {
+    await this.persistSession(controller);
+    this.output.appendLine(
+      `Dehydrated ${controller.title} (${controller.agentKey}): ${reason}.`,
+    );
+    this.removeController(controller);
+    await this.pushState();
+    this.onSessionsChanged();
+  }
+
+  private liveCap(): number {
+    const configured = this.config().get<number>("maxLiveSessions");
+    return typeof configured === "number" && configured > 0 ? configured : 8;
+  }
+
+  /**
+   * Called before opening a conversation that would exceed the cap. The user
+   * chooses what gives way — evicting on their behalf would discard context
+   * only they can judge the value of.
+   */
+  private async makeRoom(): Promise<boolean> {
+    if (this.sessions.size < this.liveCap()) return true;
+
+    const candidates = [...this.sessions.values()].filter((entry) => this.dehydratable(entry));
+    if (candidates.length === 0) {
+      void vscode.window.showWarningMessage(
+        `All ${this.sessions.size} live sessions are busy or cannot be restored by their agent. ` +
+          "Finish or close one before starting another.",
+      );
+      return false;
+    }
+
+    candidates.sort((a, b) => a.updatedAt - b.updatedAt);
+    const picked = await vscode.window.showQuickPick(
+      candidates.map((entry) => ({
+        label: entry.title,
+        description: entry.agentKey,
+        detail: `Idle since ${new Date(entry.updatedAt).toLocaleString()} — its transcript stays loadable`,
+        controller: entry,
+      })),
+      {
+        title: `${this.sessions.size} of ${this.liveCap()} sessions are live`,
+        placeHolder: "Choose a session to close so a new one can start",
+      },
+    );
+    if (!picked) return false;
+    await this.dehydrate(picked.controller, "made room for a new session");
+    return true;
+  }
+
+  /**
+   * Release sessions that have sat idle past the configured window. Zero
+   * disables this entirely; a session the agent cannot restore is never taken.
+   */
+  async sweepIdleSessions(now = Date.now()): Promise<number> {
+    const minutes = this.config().get<number>("sessionIdleMinutes");
+    if (typeof minutes !== "number" || minutes <= 0) return 0;
+
+    const cutoff = now - minutes * 60_000;
+    const stale = [...this.sessions.values()].filter(
+      (entry) => this.dehydratable(entry) && entry.updatedAt < cutoff,
+    );
+    for (const controller of stale) {
+      await this.dehydrate(controller, `idle for over ${minutes} minutes`);
+    }
+    return stale.length;
+  }
+
   private removeController(controller: ManagedSession): void {
     controller.connection.sessions.delete(controller);
     this.sessions.delete(controller.id);
@@ -943,6 +1044,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const connection = target ?? this.active()?.connection ??
       (this.lastAgentKey ? this.connections.get(this.lastAgentKey) : undefined);
     if (!connection || connection.disposed) return;
+    if (!(await this.makeRoom())) return;
 
     const controller = this.createController(connection);
     // Updates can arrive before `session/new` answers; the router needs

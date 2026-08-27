@@ -486,6 +486,9 @@ ok("active editor file and selection attach to the next prompt");
   first.agent.supportsLoad = true;
   await first.provider.startAgent("scripted");
 
+  // This check is about restore, not the live-session ceiling, so lift the cap
+  // out of the way rather than letting it decide how many exist.
+  stub.config.maxLiveSessions = 100;
   // Several finished conversations and one fresh, so restore has real work to do.
   for (const text of ["one", "two"]) {
     if (text === "two") await first.provider.newSession();
@@ -827,6 +830,50 @@ ok("active editor file and selection attach to the next prompt");
   assert.match(errors().pop(), /must be an array/);
   assert.equal(provider.liveSessions().length, 0);
   ok("a misconfigured agent is refused with a specific reason, not left to hang");
+}
+
+// --- the session ceiling and idle dehydration -------------------------------
+{
+  const { provider, agent } = await build();
+  agent.supportsLoad = true;
+  stub.config.sessionIdleMinutes = 30;
+  await provider.startAgent("scripted");
+  await provider.newSession();
+  assert.equal(provider.liveSessions().length, 2, "two live conversations to work with");
+
+  // The one on screen is exempt however stale it looks.
+  for (const entry of provider.controllers()) entry.updatedAt = Date.now() - 60 * 60_000;
+  const closed = await provider.sweepIdleSessions();
+  assert.equal(closed, 1, "only the off-screen conversation is closed");
+  assert.equal(provider.liveSessions().length, 1);
+  assert.equal(provider.liveSessions()[0].active, true, "the visible conversation survives");
+  ok("an idle off-screen conversation is released and the visible one is not");
+}
+
+{
+  const { provider, agent } = await build();
+  // An agent that can neither load nor resume cannot give a conversation back,
+  // so releasing one would silently turn live work into read-only history.
+  agent.supportsLoad = false;
+  stub.config.sessionIdleMinutes = 30;
+  await provider.startAgent("scripted");
+  await provider.newSession();
+  for (const entry of provider.controllers()) entry.updatedAt = Date.now() - 60 * 60_000;
+
+  assert.equal(await provider.sweepIdleSessions(), 0, "nothing the agent cannot restore is closed");
+  assert.equal(provider.liveSessions().length, 2);
+  ok("a conversation its agent cannot reopen is never closed on idle");
+}
+
+{
+  const { provider, agent } = await build();
+  agent.supportsLoad = true;
+  stub.config.sessionIdleMinutes = 0;
+  await provider.startAgent("scripted");
+  await provider.newSession();
+  for (const entry of provider.controllers()) entry.updatedAt = 0;
+  assert.equal(await provider.sweepIdleSessions(), 0, "zero disables idle closing outright");
+  ok("setting the idle window to zero switches idle closing off");
 }
 
 await fs.rm(tmp, { recursive: true, force: true });
