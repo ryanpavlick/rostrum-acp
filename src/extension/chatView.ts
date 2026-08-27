@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import * as vscode from "vscode";
 import type { ContentBlock, SessionInfo } from "@agentclientprotocol/sdk";
 import type {
@@ -19,7 +20,7 @@ import type {
 } from "../shared/protocol.js";
 import { managerStateFile, type AgentDefinition } from "./agentProcess.js";
 import { AgentConnection, connectionKey } from "./agentConnection.js";
-import { ManagedSession } from "./managedSession.js";
+import { ManagedSession, type PromptAttachment } from "./managedSession.js";
 import { Session, displayBlocks, type PermissionMode } from "./session.js";
 import { SessionStore, deriveTitle, type StoredSession } from "./store.js";
 import type { UsageTracker } from "./usage.js";
@@ -111,6 +112,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     sessions: number;
     lastCatalogSync?: number;
     capabilities: Capabilities;
+    promptCapabilities: { image: boolean; audio: boolean; embeddedContext: boolean };
+    mcpCapabilities: { http: boolean; sse: boolean };
+    protocolVersion?: number;
+    methods: Record<string, boolean>;
   }> {
     return [...this.connections.values()].map((connection) => ({
       agentKey: connection.agentKey,
@@ -119,6 +124,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       sessions: connection.sessions.size,
       lastCatalogSync: this.lastCatalogSync.get(connection.agentKey),
       capabilities: connection.capabilities,
+      promptCapabilities: connection.promptCaps,
+      mcpCapabilities: connection.mcpCaps,
+      protocolVersion: connection.initialize?.protocolVersion,
+      methods: agentMethods(connection.agent),
     }));
   }
 
@@ -230,6 +239,129 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /** Public command entry point; callers decide whether to ask for confirmation. */
   async deleteSessionById(sessionId: string): Promise<void> {
     await this.deleteSession(sessionId);
+  }
+
+  stageActiveEditorFile(): void {
+    const controller = this.active();
+    if (!controller || controller.readOnly) {
+      void vscode.window.showWarningMessage("Start a live Rostrum session before attaching editor context.");
+      return;
+    }
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      void vscode.window.showWarningMessage("Open a file before attaching the active editor.");
+      return;
+    }
+    controller.attachments.push({ kind: "file", uri: editor.document.uri });
+    this.postAttachments(controller);
+    void vscode.window.showInformationMessage(`Attached ${path.basename(editor.document.uri.fsPath)} to the next Rostrum prompt.`);
+  }
+
+  stageActiveEditorSelection(): void {
+    const controller = this.active();
+    if (!controller || controller.readOnly) {
+      void vscode.window.showWarningMessage("Start a live Rostrum session before attaching editor context.");
+      return;
+    }
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      void vscode.window.showWarningMessage("Open a file before attaching a selection.");
+      return;
+    }
+    if (editor.selection.isEmpty) {
+      void vscode.window.showWarningMessage("Select text before attaching the active selection.");
+      return;
+    }
+
+    const text = editor.document.getText(editor.selection);
+    const line = editor.selection.start.line + 1;
+    const name = path.basename(editor.document.uri.fsPath);
+    controller.attachments.push({
+      kind: "resource",
+      label: `${name}:${line}`,
+      uri: `${editor.document.uri.toString()}#L${line}`,
+      mimeType: "text/plain",
+      text,
+    });
+    this.postAttachments(controller);
+    void vscode.window.showInformationMessage(`Attached selection from ${name} to the next Rostrum prompt.`);
+  }
+
+  stageDiagnostics(): void {
+    const controller = this.active();
+    if (!controller || controller.readOnly) {
+      void vscode.window.showWarningMessage("Start a live Rostrum session before attaching diagnostics.");
+      return;
+    }
+    const editor = vscode.window.activeTextEditor;
+    const entries = editor
+      ? vscode.languages.getDiagnostics(editor.document.uri).map((diagnostic) => ({
+          uri: editor.document.uri,
+          diagnostic,
+        }))
+      : vscode.languages.getDiagnostics().flatMap(([uri, diagnostics]) =>
+          diagnostics.map((diagnostic) => ({ uri, diagnostic })),
+        );
+    if (entries.length === 0) {
+      void vscode.window.showInformationMessage("No VS Code diagnostics are available to attach.");
+      return;
+    }
+
+    this.stageResource(controller, {
+      label: editor ? `Diagnostics: ${path.basename(editor.document.uri.fsPath)}` : "Workspace diagnostics",
+      uri: editor?.document.uri.toString(),
+      mimeType: "text/plain",
+      text: entries.map(({ uri, diagnostic }) => formatDiagnostic(uri, diagnostic)).join("\n"),
+    });
+    void vscode.window.showInformationMessage(`Attached ${entries.length} diagnostic${entries.length === 1 ? "" : "s"} to the next Rostrum prompt.`);
+  }
+
+  stageOpenEditors(): void {
+    const controller = this.active();
+    if (!controller || controller.readOnly) {
+      void vscode.window.showWarningMessage("Start a live Rostrum session before attaching open editors.");
+      return;
+    }
+    const editors = vscode.window.visibleTextEditors;
+    if (editors.length === 0) {
+      void vscode.window.showInformationMessage("No visible editors are open.");
+      return;
+    }
+    const text = editors.map((editor) => {
+      const relative = vscode.workspace.asRelativePath(editor.document.uri, false);
+      return `${relative}\n  language: ${editor.document.languageId}\n  lines: ${editor.document.lineCount}`;
+    }).join("\n\n");
+    this.stageResource(controller, {
+      label: "Open editors",
+      mimeType: "text/plain",
+      text,
+    });
+    void vscode.window.showInformationMessage(`Attached ${editors.length} open editor${editors.length === 1 ? "" : "s"} to the next Rostrum prompt.`);
+  }
+
+  stageWorkspaceLayout(): void {
+    const controller = this.active();
+    if (!controller || controller.readOnly) {
+      void vscode.window.showWarningMessage("Start a live Rostrum session before attaching workspace layout.");
+      return;
+    }
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    if (folders.length === 0) {
+      void vscode.window.showInformationMessage("Open a folder before attaching workspace layout.");
+      return;
+    }
+    const text = folders.map((folder) => `${folder.name}: ${folder.uri.fsPath}`).join("\n");
+    this.stageResource(controller, {
+      label: "Workspace layout",
+      mimeType: "text/plain",
+      text,
+    });
+    void vscode.window.showInformationMessage(`Attached ${folders.length} workspace root${folders.length === 1 ? "" : "s"} to the next Rostrum prompt.`);
+  }
+
+  private stageResource(controller: ManagedSession, resource: Omit<Extract<PromptAttachment, { kind: "resource" }>, "kind">): void {
+    controller.attachments.push({ kind: "resource", ...resource });
+    this.postAttachments(controller);
   }
 
   /** Restart the active agent and restore its current session when possible. */
@@ -791,6 +923,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       });
   }
 
+  private notifyBackgroundCompletion(controller: ManagedSession): void {
+    void vscode.window
+      .showInformationMessage(`${controller.title} (${controller.agentKey}) finished.`, "Open session")
+      .then((choice) => {
+        if (choice) void this.activate(controller);
+      });
+  }
+
   private removeController(controller: ManagedSession): void {
     controller.connection.sessions.delete(controller);
     this.sessions.delete(controller.id);
@@ -986,6 +1126,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case "attach":
         if (controller) await this.pickAttachments(controller);
         break;
+      case "attachWorkspaceFile":
+        if (controller) await this.attachWorkspaceFile(controller, message.path);
+        break;
+      case "attachPastedImage":
+        if (controller) this.attachPastedImage(controller, message);
+        break;
+      case "searchFiles":
+        await this.searchFiles(message.query);
+        break;
       case "removeAttachment":
         if (!controller) break;
         controller.attachments.splice(message.index, 1);
@@ -1048,6 +1197,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       // conversation the user never returned to would be lost on reload.
       await this.persistSession(controller);
       this.setBusy(controller, controller.inFlightPrompts > 0);
+      if (completed && !this.isActive(controller)) this.notifyBackgroundCompletion(controller);
       controller.mayDrainQueue = completed;
       await this.drainQueue(controller);
     }
@@ -1157,7 +1307,38 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const blocks: ContentBlock[] = [];
     const promptCaps = controller.connection.promptCaps;
 
-    for (const uri of controller.attachments) {
+    for (const attachment of controller.attachments) {
+      if (attachment.kind === "media") {
+        if (attachment.mimeType.startsWith("image/") && promptCaps.image) {
+          blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data });
+        } else if (attachment.mimeType.startsWith("audio/") && promptCaps.audio) {
+          blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
+        } else {
+          blocks.push({ type: "text", text: `Attached media: ${attachment.label} (${attachment.mimeType})` });
+        }
+        continue;
+      }
+
+      if (attachment.kind === "resource") {
+        if (promptCaps.embeddedContext) {
+          blocks.push({
+            type: "resource",
+            resource: {
+              uri: attachment.uri ?? `rostrum:${encodeURIComponent(attachment.label)}`,
+              mimeType: attachment.mimeType,
+              text: attachment.text,
+            },
+          });
+        } else {
+          blocks.push({
+            type: "text",
+            text: `Attached context from ${attachment.label}:\n\n${attachment.text}`,
+          });
+        }
+        continue;
+      }
+
+      const uri = attachment.uri;
       const stat = await vscode.workspace.fs.stat(uri);
       const maxBytes = 5 * 1024 * 1024;
       if (stat.size > maxBytes) {
@@ -1211,8 +1392,45 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       title: "Attach files to the next prompt",
     });
     if (!picked?.length) return;
-    controller.attachments.push(...picked);
+    controller.attachments.push(...picked.map((uri) => ({ kind: "file" as const, uri })));
     this.postAttachments(controller);
+  }
+
+  private async attachWorkspaceFile(controller: ManagedSession, filePath: string): Promise<void> {
+    const uri = vscode.Uri.file(filePath);
+    controller.attachments.push({ kind: "file", uri });
+    this.postAttachments(controller);
+  }
+
+  private attachPastedImage(
+    controller: ManagedSession,
+    message: Extract<ViewMessage, { type: "attachPastedImage" }>,
+  ): void {
+    controller.attachments.push({
+      kind: "media",
+      label: message.name ?? "Pasted image",
+      mimeType: message.mimeType,
+      data: message.data,
+    });
+    this.postAttachments(controller);
+  }
+
+  private async searchFiles(query: string): Promise<void> {
+    const term = query.trim();
+    if (!term || !vscode.workspace.workspaceFolders?.length) {
+      this.post({ type: "fileSuggestions", query, files: [] });
+      return;
+    }
+    const escaped = term.replace(/[{}[\]\\]/g, "");
+    const uris = await vscode.workspace.findFiles(`**/*${escaped}*`, "**/{node_modules,.git,out}/**", 20);
+    this.post({
+      type: "fileSuggestions",
+      query,
+      files: uris.map((uri) => ({
+        label: vscode.workspace.asRelativePath(uri, false),
+        path: uri.fsPath,
+      })),
+    });
   }
 
   /**
@@ -1234,7 +1452,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (!this.isActive(controller)) return;
     this.post({
       type: "attachments",
-      names: controller.attachments.map((uri) => uri.path.split("/").pop() ?? uri.fsPath),
+      names: controller.attachments.map(attachmentLabel),
     });
   }
 
@@ -1690,6 +1908,27 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   flac: "audio/flac",
   json: "application/json",
   md: "text/markdown",
+  c: "text/x-c",
+  cc: "text/x-c++",
+  cpp: "text/x-c++",
+  cs: "text/x-csharp",
+  css: "text/css",
+  go: "text/x-go",
+  html: "text/html",
+  java: "text/x-java-source",
+  js: "text/javascript",
+  jsx: "text/javascript",
+  kt: "text/x-kotlin",
+  php: "text/x-php",
+  py: "text/x-python",
+  rb: "text/x-ruby",
+  rs: "text/x-rust",
+  sh: "text/x-shellscript",
+  ts: "text/typescript",
+  tsx: "text/typescript",
+  txt: "text/plain",
+  yaml: "text/yaml",
+  yml: "text/yaml",
 };
 
 function mimeFor(filePath: string): string {
@@ -1697,6 +1936,49 @@ function mimeFor(filePath: string): string {
   return MIME_BY_EXTENSION[extension] ?? "application/octet-stream";
 }
 
+function attachmentLabel(attachment: PromptAttachment): string {
+  if (attachment.kind === "resource") return attachment.label;
+  if (attachment.kind === "media") return attachment.label;
+  return attachment.uri.path.split("/").pop() ?? attachment.uri.fsPath;
+}
+
 function isTextMime(mime: string): boolean {
   return mime.startsWith("text/") || mime === "application/json";
+}
+
+function formatDiagnostic(uri: vscode.Uri, diagnostic: vscode.Diagnostic): string {
+  const range = diagnostic.range;
+  const line = range.start.line + 1;
+  const column = range.start.character + 1;
+  const severity = diagnosticSeverity(diagnostic.severity);
+  const code = diagnostic.code === undefined ? "" : ` [${typeof diagnostic.code === "object" ? diagnostic.code.value : diagnostic.code}]`;
+  return `${vscode.workspace.asRelativePath(uri, false)}:${line}:${column}: ${severity}${code}: ${diagnostic.message}`;
+}
+
+function diagnosticSeverity(severity: vscode.DiagnosticSeverity): string {
+  switch (severity) {
+    case vscode.DiagnosticSeverity.Error: return "error";
+    case vscode.DiagnosticSeverity.Warning: return "warning";
+    case vscode.DiagnosticSeverity.Information: return "info";
+    case vscode.DiagnosticSeverity.Hint: return "hint";
+    default: return "diagnostic";
+  }
+}
+
+function agentMethods(agent: unknown): Record<string, boolean> {
+  const record = agent as Record<string, unknown>;
+  return {
+    initialize: typeof record.initialize === "function",
+    authenticate: typeof record.authenticate === "function",
+    newSession: typeof record.newSession === "function",
+    prompt: typeof record.prompt === "function",
+    cancel: typeof record.cancel === "function",
+    loadSession: typeof record.loadSession === "function",
+    resumeSession: typeof record.resumeSession === "function",
+    listSessions: typeof record.listSessions === "function",
+    forkSession: typeof record.forkSession === "function",
+    deleteSession: typeof record.deleteSession === "function",
+    setSessionMode: typeof record.setSessionMode === "function",
+    setSessionConfigOption: typeof record.setSessionConfigOption === "function",
+  };
 }

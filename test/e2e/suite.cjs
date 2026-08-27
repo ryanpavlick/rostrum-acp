@@ -27,6 +27,12 @@ function run() {
         "rostrum.searchSessions",
         "rostrum.retryRecovery",
         "rostrum.agentDiagnostics",
+        "rostrum.clearLocalData",
+        "rostrum.attachActiveFile",
+        "rostrum.attachSelection",
+        "rostrum.attachDiagnostics",
+        "rostrum.attachOpenEditors",
+        "rostrum.attachWorkspaceLayout",
       ]) {
         assert.ok(commands.includes(command), `missing command: ${command}`);
       }

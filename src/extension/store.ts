@@ -272,6 +272,11 @@ export class SessionStore {
     }
   }
 
+  async clear(): Promise<void> {
+    this.cache.clear();
+    await fs.rm(this.root, { recursive: true, force: true });
+  }
+
   private async readCatalog(): Promise<CatalogEntry[]> {
     try {
       const raw = JSON.parse(await fs.readFile(this.catalogFile(), "utf8")) as unknown;

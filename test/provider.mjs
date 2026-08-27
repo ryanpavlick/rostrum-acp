@@ -40,6 +40,7 @@ class ScriptedAgent {
     this.nextSessionId = 0;
     /** sessionId -> { resolve } for prompts the test holds open. */
     this.openPrompts = new Map();
+    this.prompts = [];
     this.cancelled = [];
     this.loaded = [];
     this.supportsLoad = false;
@@ -61,6 +62,7 @@ class ScriptedAgent {
         ],
       },
     ];
+    this.promptCapabilities = { image: true };
   }
 
   async initialize() {
@@ -68,7 +70,7 @@ class ScriptedAgent {
       protocolVersion: 1,
       agentCapabilities: {
         loadSession: this.supportsLoad,
-        promptCapabilities: { image: true },
+        promptCapabilities: this.promptCapabilities,
       },
       authMethods: this.authMethods,
     };
@@ -104,7 +106,8 @@ class ScriptedAgent {
   }
 
   /** Resolves only when the test calls `finish(sessionId)`. */
-  prompt({ sessionId }) {
+  prompt({ sessionId, prompt }) {
+    this.prompts.push({ sessionId, prompt });
     return new Promise((resolve) => {
       this.openPrompts.set(sessionId, resolve);
     });
@@ -237,6 +240,96 @@ async function build(previous) {
 const textOf = (turns) =>
   turns.flatMap((turn) => turn.blocks.filter((b) => b.kind === "text").map((b) => b.text));
 
+// --- editor context can be attached to the next prompt -----------------------
+{
+  const { provider, agent } = await build();
+  agent.promptCapabilities = { image: true, embeddedContext: true };
+  await provider.startAgent("scripted");
+
+  const uri = { fsPath: "/workspace/src/example.ts", path: "/workspace/src/example.ts", toString: () => "file:///workspace/src/example.ts" };
+  stub.files.set(uri.fsPath, "export const answer = 42;\n");
+  stub.activeTextEditor = {
+    document: {
+      uri,
+      getText: () => "answer = 42",
+    },
+    selection: {
+      isEmpty: false,
+      start: { line: 0 },
+    },
+  };
+
+  provider.stageActiveEditorFile();
+  provider.stageActiveEditorSelection();
+  const running = provider.handleMessage({ type: "prompt", text: "Use this context" });
+  await until(() => agent.prompts.length === 1, "prompt with editor attachments");
+
+  const prompt = agent.prompts[0].prompt;
+  assert.equal(prompt[0].text, "Use this context");
+  assert.equal(prompt[1].type, "resource", "active text file is embedded as context");
+  assert.equal(prompt[1].resource.text, "export const answer = 42;\n");
+  assert.equal(prompt[2].type, "resource", "selection is embedded as context");
+  assert.equal(prompt[2].resource.text, "answer = 42");
+  assert.equal(prompt[2].resource.uri, "file:///workspace/src/example.ts#L1");
+  agent.finish("session-1");
+  await running;
+ok("active editor file and selection attach to the next prompt");
+}
+
+// --- richer editor context attachments mirror the VS Code workspace ---------
+{
+  const { provider, agent, posted } = await build();
+  agent.promptCapabilities = { image: true, embeddedContext: true };
+  await provider.startAgent("scripted");
+
+  const uri = { fsPath: "/workspace/src/app.ts", path: "/workspace/src/app.ts", toString: () => "file:///workspace/src/app.ts" };
+  stub.activeTextEditor = {
+    document: { uri, languageId: "typescript", lineCount: 10, getText: () => "selected" },
+    selection: { isEmpty: true, start: { line: 0, character: 0 } },
+  };
+  stub.visibleTextEditors = [
+    { document: { uri, languageId: "typescript", lineCount: 10 } },
+  ];
+  stub.diagnostics = [
+    {
+      uri,
+      diagnostic: {
+        range: { start: { line: 2, character: 4 } },
+        severity: 0,
+        code: "TS1234",
+        message: "Example diagnostic",
+      },
+    },
+  ];
+  stub.workspaceFiles = [uri];
+  stub.files.set(uri.fsPath, "console.log('ok');\n");
+
+  provider.stageDiagnostics();
+  provider.stageOpenEditors();
+  provider.stageWorkspaceLayout();
+  await provider.handleMessage({ type: "searchFiles", query: "app" });
+  const suggestions = posted.filter((message) => message.type === "fileSuggestions").pop();
+  assert.equal(suggestions.files[0].label, "src/app.ts");
+  await provider.handleMessage({ type: "attachWorkspaceFile", path: uri.fsPath });
+  await provider.handleMessage({
+    type: "attachPastedImage",
+    mimeType: "image/png",
+    data: "aGVsbG8=",
+    name: "clipboard.png",
+  });
+
+  const running = provider.handleMessage({ type: "prompt", text: "Use all context" });
+  await until(() => agent.prompts.length === 1, "prompt with rich editor context");
+  const prompt = agent.prompts[0].prompt;
+  assert.equal(prompt.filter((block) => block.type === "resource").length, 4);
+  assert.ok(prompt.some((block) => block.type === "resource" && block.resource.text.includes("Example diagnostic")));
+  assert.ok(prompt.some((block) => block.type === "resource" && block.resource.text.includes("src/app.ts")));
+  assert.ok(prompt.some((block) => block.type === "image" && block.data === "aGVsbG8="));
+  agent.finish("session-1");
+  await running;
+  ok("diagnostics, workspace files, open editors, layout and pasted images attach to the next prompt");
+}
+
 // --- a background turn keeps running, recording and persisting ---------------
 {
   const { provider, agent, store, posted } = await build();
@@ -299,6 +392,7 @@ const textOf = (turns) =>
     "idle",
     "the finished background session settles",
   );
+  assert.match(stub.notifications.at(-1), /finished/);
   ok("background completion is persisted without touching the other session");
 }
 

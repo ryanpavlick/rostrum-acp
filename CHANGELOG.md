@@ -2,8 +2,8 @@
 
 ## 0.19.0
 
-First pre-release published to the VS Code Marketplace. Packaging and listing
-work only; no behavior changes.
+First pre-release published to the VS Code Marketplace. Mostly packaging and
+listing work, plus beta support/reset polish.
 
 - Published as a pre-release under the `ryanpavlick` publisher.
 - Repository moved to `ryanpavlick/rostrum-acp`; every stale link updated.
@@ -16,6 +16,17 @@ work only; no behavior changes.
   packaged.
 - Rewrote the Marketplace description to lead with concurrent background sessions
   and approval gating.
+- Added a support policy and **Rostrum: Clear Local Data** for beta users who
+  need to stop background agents and reset local Rostrum history/state without
+  changing their VS Code settings.
+- Added editor-aware context: attach the active file, current selection,
+  diagnostics, open editors, workspace layout, `@`-mentioned files, or pasted
+  images to the next prompt.
+- Background sessions now notify when an off-screen turn finishes, with an
+  action to open that session.
+- Expanded **Rostrum: Show Agent Diagnostics** into a capability report with
+  protocol version, session capabilities, prompt content, MCP transports, and
+  detected agent methods.
 
 ## 0.18.0
 

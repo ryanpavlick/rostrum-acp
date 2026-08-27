@@ -21,6 +21,11 @@ import type { AgentConnection } from "./agentConnection.js";
 
 export type { SessionLifecycle };
 
+export type PromptAttachment =
+  | { kind: "file"; uri: vscode.Uri }
+  | { kind: "media"; label: string; mimeType: string; data: string }
+  | { kind: "resource"; label: string; uri?: string; mimeType?: string; text: string };
+
 let counter = 0;
 
 export class ManagedSession {
@@ -37,7 +42,7 @@ export class ManagedSession {
   /** A successfully completed primary turn permits one queue drain. */
   mayDrainQueue = false;
   queue: string[] = [];
-  attachments: vscode.Uri[] = [];
+  attachments: PromptAttachment[] = [];
   /**
    * Every request waiting on the user, oldest first.
    *

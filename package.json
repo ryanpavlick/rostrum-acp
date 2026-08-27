@@ -173,6 +173,11 @@
         "title": "Rostrum: Stop Background Agents"
       },
       {
+        "command": "rostrum.clearLocalData",
+        "title": "Rostrum: Clear Local Data",
+        "icon": "$(trash)"
+      },
+      {
         "command": "rostrum.showAgentLog",
         "title": "Rostrum: Show Agent Log"
       },
@@ -184,6 +189,31 @@
         "command": "rostrum.detectAgents",
         "title": "Rostrum: Detect Installed Agents",
         "icon": "$(search)"
+      },
+      {
+        "command": "rostrum.attachActiveFile",
+        "title": "Rostrum: Attach Active File",
+        "icon": "$(file-add)"
+      },
+      {
+        "command": "rostrum.attachSelection",
+        "title": "Rostrum: Attach Selection",
+        "icon": "$(selection)"
+      },
+      {
+        "command": "rostrum.attachDiagnostics",
+        "title": "Rostrum: Attach Diagnostics",
+        "icon": "$(warning)"
+      },
+      {
+        "command": "rostrum.attachOpenEditors",
+        "title": "Rostrum: Attach Open Editors",
+        "icon": "$(layout)"
+      },
+      {
+        "command": "rostrum.attachWorkspaceLayout",
+        "title": "Rostrum: Attach Workspace Layout",
+        "icon": "$(folder-library)"
       },
       {
         "command": "rostrum.changesAsTree",
@@ -239,6 +269,15 @@
         "command": "rostrum.previousEdit",
         "title": "Rostrum: Previous Agent Edit",
         "icon": "$(arrow-left)"
+      },
+      {
+        "command": "rostrum.openLastEditForFile",
+        "title": "Rostrum: Open Last Agent Edit for This File",
+        "icon": "$(diff-single)"
+      },
+      {
+        "command": "rostrum.copySessionId",
+        "title": "Rostrum: Copy Session ID"
       }
     ],
     "menus": {
@@ -352,6 +391,21 @@
           "command": "rostrum.openHistoryDiff",
           "when": "false"
         }
+      ],
+      "editor/context": [
+        {
+          "command": "rostrum.attachSelection",
+          "when": "editorHasSelection",
+          "group": "navigation@50"
+        },
+        {
+          "command": "rostrum.attachActiveFile",
+          "group": "navigation@51"
+        },
+        {
+          "command": "rostrum.attachDiagnostics",
+          "group": "navigation@52"
+        }
       ]
     },
     "configuration": {
@@ -438,6 +492,12 @@
         "command": "rostrum.previousEdit",
         "key": "alt+left",
         "when": "resourceScheme == rostrum-diff"
+      },
+      {
+        "command": "rostrum.attachSelection",
+        "key": "ctrl+alt+l",
+        "mac": "cmd+alt+l",
+        "when": "editorTextFocus && editorHasSelection"
       }
     ]
   },

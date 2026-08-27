@@ -13,6 +13,10 @@ interface Stub {
   nextNotificationChoice: string | undefined;
   quickPickResult: unknown;
   openDialogResult: unknown[] | undefined;
+  activeTextEditor: unknown;
+  visibleTextEditors: unknown[];
+  diagnostics: unknown[];
+  workspaceFiles: Uri[];
   files: Map<string, string>;
   reset(): void;
 }
@@ -32,6 +36,10 @@ export const stub: Stub = (scope.__rostrumVscodeStub ??= {
   nextNotificationChoice: undefined as string | undefined,
   quickPickResult: undefined as unknown,
   openDialogResult: undefined as unknown[] | undefined,
+  activeTextEditor: undefined as unknown,
+  visibleTextEditors: [] as unknown[],
+  diagnostics: [] as unknown[],
+  workspaceFiles: [] as Uri[],
   files: new Map<string, string>(),
   reset() {
     this.config = {};
@@ -39,6 +47,10 @@ export const stub: Stub = (scope.__rostrumVscodeStub ??= {
     this.nextNotificationChoice = undefined;
     this.quickPickResult = undefined;
     this.openDialogResult = undefined;
+    this.activeTextEditor = undefined;
+    this.visibleTextEditors = [];
+    this.diagnostics = [];
+    this.workspaceFiles = [];
     this.files.clear();
   },
 });
@@ -69,6 +81,17 @@ export const workspace = {
   getConfiguration(_section: string) {
     return { get: (key: string) => stub.config[key] };
   },
+  asRelativePath(uri: Uri | string) {
+    const value = typeof uri === "string" ? uri : uri.fsPath;
+    const root = stub.workspaceFolders.find((folder) => value.startsWith(`${folder}/`));
+    return root ? value.slice(root.length + 1) : value;
+  },
+  async findFiles(pattern: string, _exclude: string, maxResults?: number) {
+    const needle = pattern.replace(/^\*\*\//, "").replace(/\*/g, "").toLowerCase();
+    return stub.workspaceFiles
+      .filter((uri) => uri.fsPath.toLowerCase().includes(needle))
+      .slice(0, maxResults);
+  },
   fs: {
     async stat(uri: Uri) {
       return { size: Buffer.byteLength(stub.files.get(uri.fsPath) ?? "") };
@@ -80,6 +103,12 @@ export const workspace = {
 };
 
 export const window = {
+  get activeTextEditor() {
+    return stub.activeTextEditor;
+  },
+  get visibleTextEditors() {
+    return stub.visibleTextEditors;
+  },
   async showQuickPick(items: unknown) {
     const chosen = stub.quickPickResult;
     stub.quickPickResult = undefined;
@@ -99,6 +128,19 @@ export const window = {
   },
   async showTextDocument() {
     return undefined;
+  },
+};
+
+export const DiagnosticSeverity = { Error: 0, Warning: 1, Information: 2, Hint: 3 };
+
+export const languages = {
+  getDiagnostics(uri?: Uri) {
+    if (uri) {
+      return stub.diagnostics
+        .filter((entry: any) => entry.uri.fsPath === uri.fsPath)
+        .map((entry: any) => entry.diagnostic);
+    }
+    return stub.diagnostics.map((entry: any) => [entry.uri, [entry.diagnostic]]);
   },
 };
 

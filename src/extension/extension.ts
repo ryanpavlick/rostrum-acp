@@ -134,15 +134,52 @@ export function activate(context: vscode.ExtensionContext): void {
       output.appendLine("\nRostrum agent diagnostics:");
       for (const row of rows) {
         const caps = Object.entries(row.capabilities).filter(([, enabled]) => enabled).map(([name]) => name).join(", ") || "none";
+        const prompt = Object.entries(row.promptCapabilities).filter(([, enabled]) => enabled).map(([name]) => name).join(", ") || "text";
+        const mcp = Object.entries(row.mcpCapabilities).filter(([, enabled]) => enabled).map(([name]) => name).join(", ") || "none";
+        const methods = Object.entries(row.methods).filter(([, present]) => present).map(([name]) => name).join(", ") || "none";
         output.appendLine(
           `  ${row.agentKey}: ${row.alive ? "alive" : "disconnected"}, ${row.persistent ? "supervised" : "direct"}, ` +
-          `${row.sessions} session(s), catalog ${row.lastCatalogSync ? new Date(row.lastCatalogSync).toLocaleString() : "not synced"}, capabilities: ${caps}`,
+          `${row.sessions} session(s), catalog ${row.lastCatalogSync ? new Date(row.lastCatalogSync).toLocaleString() : "not synced"}`,
         );
+        output.appendLine(`    protocol: ${row.protocolVersion ?? "unknown"}`);
+        output.appendLine(`    session capabilities: ${caps}`);
+        output.appendLine(`    prompt content: ${prompt}`);
+        output.appendLine(`    MCP transports: ${mcp}`);
+        output.appendLine(`    methods present: ${methods}`);
       }
       output.show(true);
     }),
 
     vscode.commands.registerCommand("rostrum.openHistoryDiff", (edit) => diffs.open(edit)),
+
+    vscode.commands.registerCommand("rostrum.openLastEditForFile", async (resource?: vscode.Uri) => {
+      const target = resource ?? vscode.window.activeTextEditor?.document.uri;
+      if (!target) {
+        void vscode.window.showWarningMessage("Open a file to see the last agent edit for it.");
+        return;
+      }
+      const edit = history.lastTouchedBy(target.fsPath);
+      if (!edit) {
+        void vscode.window.showInformationMessage(
+          `No agent has edited ${path.basename(target.fsPath)} in a recorded session.`,
+        );
+        return;
+      }
+      await diffs.open(edit);
+    }),
+
+    vscode.commands.registerCommand("rostrum.copySessionId", async () => {
+      // The agent's own id, not the controller id: this is for pasting into a
+      // bug report or the agent's CLI, where only the protocol id means anything.
+      const live = chat.liveSessions();
+      const active = live.find((session) => session.active) ?? live[0];
+      if (!active?.sessionId) {
+        void vscode.window.showWarningMessage("No live Rostrum session to copy an id from.");
+        return;
+      }
+      await vscode.env.clipboard.writeText(active.sessionId);
+      void vscode.window.showInformationMessage(`Copied session id for ${active.title}.`);
+    }),
 
     vscode.commands.registerCommand("rostrum.compareWithCurrent", (edit) =>
       diffs.compareWithCurrent(edit),
@@ -238,6 +275,26 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
 
     vscode.commands.registerCommand("rostrum.detectAgents", () => detectAndAddAgents(chat)),
+
+    vscode.commands.registerCommand("rostrum.attachActiveFile", () => {
+      chat.stageActiveEditorFile();
+    }),
+
+    vscode.commands.registerCommand("rostrum.attachSelection", () => {
+      chat.stageActiveEditorSelection();
+    }),
+
+    vscode.commands.registerCommand("rostrum.attachDiagnostics", () => {
+      chat.stageDiagnostics();
+    }),
+
+    vscode.commands.registerCommand("rostrum.attachOpenEditors", () => {
+      chat.stageOpenEditors();
+    }),
+
+    vscode.commands.registerCommand("rostrum.attachWorkspaceLayout", () => {
+      chat.stageWorkspaceLayout();
+    }),
 
     vscode.commands.registerCommand("rostrum.pickAgent", async () => {
       const configured = Object.keys(
@@ -364,6 +421,33 @@ export function activate(context: vscode.ExtensionContext): void {
       if (answer !== "Stop") return;
       await managerStop(managerStateFile(storage));
       void vscode.window.showInformationMessage("Rostrum background agents stopped.");
+    }),
+
+    vscode.commands.registerCommand("rostrum.clearLocalData", async () => {
+      const answer = await vscode.window.showWarningMessage(
+        "Clear Rostrum local data for this machine? This stops background agents and deletes saved transcripts, synced session catalog entries, change history, usage stats, remembered per-agent choices, and reload recovery state. VS Code settings and installed agents are not changed.",
+        { modal: true },
+        "Clear Local Data",
+      );
+      if (answer !== "Clear Local Data") return;
+
+      await managerStop(managerStateFile(storage)).catch(() => undefined);
+      await Promise.all([
+        store.clear(),
+        history.clear(),
+        usage.clear(),
+        context.workspaceState.update("rostrum.liveSessions", undefined),
+        context.workspaceState.update("rostrum.activeSession", undefined),
+        context.globalState.update("rostrum.agentPreferences", undefined),
+        context.globalState.update("migratedFromOpenACP", undefined),
+      ]);
+
+      sessions.refresh();
+      changes.refresh();
+      timeline.refresh();
+      usageView.refresh();
+      outline.update([]);
+      void vscode.window.showInformationMessage("Rostrum local data cleared. Reload the window before starting a new session.");
     }),
 
     vscode.commands.registerCommand("rostrum.editSettings", () =>

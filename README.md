@@ -46,9 +46,11 @@ Rostrum is for developers who want the freedom to select the best coding agent f
 - Streaming agent messages, reasoning blocks, rich media/resources, tool calls and their status, plans/todos, and sub-agent delegation indicators.
 - Interactive permission prompts with `ask`, `acceptEdits`, and `yolo` modes; structured agent questions and ACP elicitation are shown in the UI instead of being silently answered.
 - Persistent transcripts: reopen the most recent workspace session, browse agent-provided and local history, load/resume conversations, fork when the agent supports it, delete saved sessions, and export transcripts as Markdown.
+- Background sessions notify you when they need approval or finish while you are working elsewhere.
 - Durable edit tracking, including changed files, a cross-file timeline, historical snapshots, and native VS Code diffs.
 - Agent capabilities are negotiated at runtime. Rostrum only exposes optional actions—such as forking, slash commands, session settings, attachments, or MCP—that the connected agent advertises.
 - Prompt queueing, mid-turn steering, text/image/audio attachments, slash-command completion, configurable session options, and token-usage reporting where supported by the agent.
+- Editor context commands for attaching the active file, current selection, diagnostics, open editors, or workspace layout to the next prompt; `@` file mentions and pasted images are staged as attachments.
 - Global or agent-specific MCP server configuration, with capability-gated stdio, HTTP, and SSE transports.
 - Agent discovery for common locally installed CLIs, registry-based agent installation, and actionable validation for malformed agent definitions.
 - Workspace-host execution for local, SSH, WSL, and dev-container workspaces, so the agent runs beside the code it is changing. Agents that support ACP additional directories can receive multi-root workspaces.
@@ -256,6 +258,11 @@ Open the Command Palette and search for `Rostrum`.
 | `Rostrum: Show Background Agent Status` | Inspect the local agent supervisor. |
 | `Rostrum: Show Agent Log` | View captured agent output for diagnosis. |
 | `Rostrum: Stop Background Agents` | Stop one or all supervised background agents. |
+| `Rostrum: Attach Active File` | Attach the open editor file to the next prompt. |
+| `Rostrum: Attach Selection` | Attach the selected editor text to the next prompt. |
+| `Rostrum: Attach Diagnostics` | Attach VS Code diagnostics to the next prompt. |
+| `Rostrum: Attach Open Editors` | Attach a compact list of visible editors to the next prompt. |
+| `Rostrum: Attach Workspace Layout` | Attach the current workspace roots to the next prompt. |
 
 ## Security and privacy
 
@@ -266,6 +273,11 @@ Rostrum is a client and UI; the configured agent and any MCP servers decide what
 - Permission requests are surfaced in the UI. Background conversations that need approval notify you rather than approving themselves.
 - MCP credentials placed in VS Code settings may be readable by people or processes with access to those settings. Prefer your platform’s secret-management mechanisms or agent-supported credential flows where possible.
 - Agents installed from the ACP registry use `npx`, `uvx`, or a platform binary; downloaded registry binaries are checksum-verified when the registry supplies a SHA-256 checksum.
+
+Use **Rostrum: Clear Local Data** to remove Rostrum's local transcripts, synced
+session catalog entries, change history, usage stats, remembered per-agent
+choices, and reload recovery state. The command stops background agents first
+and leaves your VS Code settings and installed agents unchanged.
 
 ## Compatibility and current status
 
@@ -306,6 +318,8 @@ Contributions, agent compatibility reports, documentation fixes, and UI feedback
 4. Never include API keys, tokens, private prompts, workspace contents, or unredacted logs in an issue or pull request.
 
 For a protocol or compatibility issue, include the ACP agent and version, OS/remote-host context, the configured command and arguments, the expected behavior, and a minimal reproduction.
+
+For support expectations and safe compatibility reports, see [SUPPORT.md](SUPPORT.md).
 
 ## Project links
 

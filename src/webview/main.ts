@@ -1,6 +1,7 @@
 import type {
   Block,
   Capabilities,
+  FileSuggestion,
   HostMessage,
   PendingRequest,
   Question,
@@ -48,6 +49,8 @@ const state: ViewState = {
 };
 
 let attachmentNames: string[] = [];
+let fileSuggestions: FileSuggestion[] = [];
+let fileQuery = "";
 
 const turnNodes = new Map<string, HTMLElement>();
 
@@ -199,13 +202,35 @@ steerButton.onclick = () => {
 
 const commandList = el("div", "command-list");
 commandList.style.display = "none";
+const fileList = el("div", "command-list");
+fileList.style.display = "none";
 
 const composerRow = el("div", "composer-row");
 composerRow.append(sendButton, stopButton, queueButton, steerButton, attachButton);
-composer.append(commandList, input, composerRow);
+composer.append(commandList, fileList, input, composerRow);
+
+input.addEventListener("paste", (event) => {
+  const items = Array.from(event.clipboardData?.items ?? []);
+  const image = items.find((item) => item.kind === "file" && item.type.startsWith("image/"));
+  const file = image?.getAsFile();
+  if (!file) return;
+  event.preventDefault();
+  const reader = new FileReader();
+  reader.onload = () => {
+    const result = String(reader.result ?? "");
+    const data = result.includes(",") ? result.split(",").pop() ?? "" : result;
+    if (data) post({ type: "attachPastedImage", mimeType: file.type || "image/png", data, name: file.name || "Pasted image" });
+  };
+  reader.readAsDataURL(file);
+});
+
+input.oninput = () => {
+  renderCommandSuggestions();
+  renderFileMentionSuggestions();
+};
 
 /** Offer the agent's slash commands while the line starts with "/". */
-input.oninput = () => {
+function renderCommandSuggestions(): void {
   const value = input.value;
   const match = /^\/(\w*)$/.exec(value);
   if (!match || state.commands.length === 0) {
@@ -231,13 +256,54 @@ input.oninput = () => {
     commandList.append(row);
   }
   commandList.style.display = "";
-};
+}
+
+function renderFileMentionSuggestions(): void {
+  const mention = activeFileMention(input.value, input.selectionStart ?? input.value.length);
+  if (!mention) {
+    fileList.style.display = "none";
+    return;
+  }
+  if (mention.query !== fileQuery) {
+    fileQuery = mention.query;
+    post({ type: "searchFiles", query: mention.query });
+  }
+  renderFileSuggestions(mention);
+}
+
+function renderFileSuggestions(mention = activeFileMention(input.value, input.selectionStart ?? input.value.length)): void {
+  if (!mention || fileSuggestions.length === 0) {
+    fileList.style.display = "none";
+    return;
+  }
+  fileList.replaceChildren();
+  for (const file of fileSuggestions) {
+    const row = el("button", "command-row");
+    row.append(el("span", "command-name", `@${file.label}`));
+    row.onclick = () => {
+      input.value = `${input.value.slice(0, mention.start)}@${file.label} ${input.value.slice(mention.end)}`;
+      fileList.style.display = "none";
+      post({ type: "attachWorkspaceFile", path: file.path });
+      input.focus();
+    };
+    fileList.append(row);
+  }
+  fileList.style.display = "";
+}
+
+function activeFileMention(value: string, caret: number): { query: string; start: number; end: number } | null {
+  const before = value.slice(0, caret);
+  const match = /(?:^|\s)@([^\s@]*)$/.exec(before);
+  if (!match || !match[1]) return null;
+  return { query: match[1], start: caret - match[1].length - 1, end: caret };
+}
 
 function submitPrompt(): void {
   const text = input.value.trim();
   if (!text) return;
   input.value = "";
   commandList.style.display = "none";
+  fileList.style.display = "none";
   // Sending while busy queues instead of being silently dropped.
   post(state.busy ? { type: "queuePrompt", text } : { type: "prompt", text });
 }
@@ -1019,6 +1085,12 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
     case "attachments":
       attachmentNames = message.names;
       renderAttachments();
+      break;
+    case "fileSuggestions":
+      if (message.query === fileQuery) {
+        fileSuggestions = message.files;
+        renderFileSuggestions();
+      }
       break;
     case "usage":
       state.usage = message.usage;

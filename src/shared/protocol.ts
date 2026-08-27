@@ -171,6 +171,7 @@ export type HostMessage =
   | { type: "plan"; plan: PlanEntry[] }
   | { type: "queued"; queued: string[] }
   | { type: "attachments"; names: string[] }
+  | { type: "fileSuggestions"; query: string; files: FileSuggestion[] }
   | { type: "error"; message: string };
 
 export interface ViewState {
@@ -212,6 +213,11 @@ export interface PlanEntry {
   priority?: string;
 }
 
+export interface FileSuggestion {
+  label: string;
+  path: string;
+}
+
 /** Webview -> host. */
 export type ViewMessage =
   | { type: "ready" }
@@ -232,6 +238,9 @@ export type ViewMessage =
   | { type: "unqueuePrompt"; index: number }
   | { type: "steer"; text: string }
   | { type: "attach" }
+  | { type: "attachWorkspaceFile"; path: string }
+  | { type: "attachPastedImage"; mimeType: string; data: string; name?: string }
+  | { type: "searchFiles"; query: string }
   | { type: "removeAttachment"; index: number }
   | { type: "deleteSession"; sessionId: string }
   /**
