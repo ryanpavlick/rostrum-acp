@@ -9,7 +9,7 @@ Multicoder’s documented differentiators are a local server that outlives VS Co
 ## Current baseline
 
 - Package: `rostrum` / Rostrum ACP, currently `0.18.0`. CHANGELOG records 0.11–0.18 individually.
-- Repository: `https://github.com/ryanpavlick/rostrum` (private), branch `main`.
+- Repository: `https://github.com/ryanpavlick/rostrum-acp` (private), branch `main`.
 - Production build: `npm run build`.
 - Full automated suite: `npm test` — currently green: 24 unit, 7 regression, 9 feature, 16 supervisor, 9 chaos, 13 concurrency, 20 provider, 13 sessions view, 9 store safety, 12 preference, 7 export, 15 discovery, 19 markdown, 13 highlight, 17 workspace view, and 1 ACP round-trip check.
 - Compatibility probe (not part of `npm test`, needs real agents): `node test/compat.mjs` — see `docs/compatibility.md`.
