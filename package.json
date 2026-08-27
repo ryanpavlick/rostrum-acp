@@ -1,9 +1,10 @@
 {
   "name": "rostrum",
   "displayName": "Rostrum ACP",
-  "description": "One UI for every Agent Client Protocol coding agent. Run Claude, Codex, Qwen, OpenCode, Hermes and more inside VS Code, with full visibility into every change, tool call, and reasoning step.",
-  "version": "0.18.0",
-  "publisher": "rostrum-ai",
+  "description": "Run several coding agents at once in VS Code. Background sessions survive window reloads, nothing runs until you approve it, and every edit, tool call, and reasoning step stays inspectable. Works with any Agent Client Protocol agent.",
+  "version": "0.19.0",
+  "preview": true,
+  "publisher": "ryanpavlick",
   "license": "Apache-2.0",
   "icon": "resources/icon.png",
   "galleryBanner": {
@@ -18,7 +19,7 @@
   "categories": [
     "AI",
     "Chat",
-    "Programming Languages"
+    "Other"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -475,6 +476,10 @@
     "untrustedWorkspaces": {
       "supported": false,
       "description": "Agents execute commands in the workspace."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "Agents run as local processes and edit files on disk."
     }
   },
   "keywords": [
@@ -491,10 +496,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/rostrum-ai/rostrum.git"
+    "url": "https://github.com/ryanpavlick/rostrum-acp.git"
   },
   "bugs": {
-    "url": "https://github.com/rostrum-ai/rostrum/issues"
+    "url": "https://github.com/ryanpavlick/rostrum-acp/issues"
   },
-  "homepage": "https://github.com/rostrum-ai/rostrum#readme"
+  "homepage": "https://github.com/ryanpavlick/rostrum-acp#readme"
 }

@@ -10,7 +10,7 @@ Rostrum ACP is an open-source VS Code extension that runs ACP-compatible coding 
 Bring the agent you already use—such as Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Qwen Code, OpenCode, Hermes, or another ACP-compatible implementation—and use it from one consistent UI. Rostrum communicates with agents through JSON-RPC over standard input/output using the official [`@agentclientprotocol/sdk`](https://www.npmjs.com/package/@agentclientprotocol/sdk).
 
 <p align="center">
-  <img src="docs/images/rostrum-workspace-overview.png" alt="Conceptual dark-mode coding workspace with a Rostrum chat panel, tool activity, agent approval, and a change diff." width="100%">
+  <img src="https://raw.githubusercontent.com/ryanpavlick/rostrum-acp/main/docs/images/rostrum-workspace-overview.png" alt="Conceptual dark-mode coding workspace with a Rostrum chat panel, tool activity, agent approval, and a change diff." width="100%">
 </p>
 
 > Concept illustration of the Rostrum workflow; the exact VS Code interface varies by version and agent capability.
@@ -25,7 +25,7 @@ Bring the agent you already use—such as Claude Code, Codex, GitHub Copilot CLI
 3. **Work from a consistent interface.** ACP lets Rostrum translate the common parts—prompts, streaming output, permissions, sessions, and edits—into one VS Code experience, while capability negotiation preserves each agent’s unique features.
 
 <p align="center">
-  <img src="docs/images/rostrum-acp-workflow.png" alt="Conceptual diagram of several agent processes joining through an ACP routing hub to one VS Code workspace, where the user reviews permissions and diffs." width="100%">
+  <img src="https://raw.githubusercontent.com/ryanpavlick/rostrum-acp/main/docs/images/rostrum-acp-workflow.png" alt="Conceptual diagram of several agent processes joining through an ACP routing hub to one VS Code workspace, where the user reviews permissions and diffs." width="100%">
 </p>
 
 ## Why Rostrum
@@ -81,7 +81,7 @@ npx vsce package --no-dependencies
 ### From source for development
 
 ```bash
-git clone https://github.com/rostrum-ai/rostrum.git
+git clone https://github.com/ryanpavlick/rostrum-acp.git
 cd rostrum
 npm ci
 npm run build
@@ -300,7 +300,7 @@ npx vsce package --no-dependencies
 
 Contributions, agent compatibility reports, documentation fixes, and UI feedback are welcome. Please:
 
-1. Search existing [issues](https://github.com/rostrum-ai/rostrum/issues) before opening a new one.
+1. Search existing [issues](https://github.com/ryanpavlick/rostrum-acp/issues) before opening a new one.
 2. Keep changes focused and add or update tests for behavior changes.
 3. Run `npm run typecheck` and `npm test` before submitting a pull request.
 4. Never include API keys, tokens, private prompts, workspace contents, or unredacted logs in an issue or pull request.
@@ -311,7 +311,7 @@ For a protocol or compatibility issue, include the ACP agent and version, OS/rem
 
 - [Agent Client Protocol](https://agentclientprotocol.com/)
 - [ACP agent registry](https://agentclientprotocol.com/get-started/registry)
-- [Report an issue](https://github.com/rostrum-ai/rostrum/issues)
+- [Report an issue](https://github.com/ryanpavlick/rostrum-acp/issues)
 - [Apache-2.0 license](LICENSE)
 
 ## License

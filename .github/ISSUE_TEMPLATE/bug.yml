@@ -1,0 +1,35 @@
+name: Bug report
+description: Something in Rostrum itself is broken.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never paste API keys, tokens, prompts, or workspace contents.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      placeholder: "1. ...\n2. ...\n3. ..."
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS, VS Code version, and Rostrum version
+      placeholder: "macOS 15.3 (arm64), VS Code 1.104.2, Rostrum 0.19.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: host
+    attributes:
+      label: Workspace host
+      options: [Local, Remote SSH, WSL, Dev container, Codespaces, Other]
+    validations:
+      required: true

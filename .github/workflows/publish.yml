@@ -1,0 +1,57 @@
+name: Publish pre-release
+
+# Tag-triggered so publishing is always a deliberate act, never a side effect of
+# a merge. The full CI matrix must pass before the VSIX is uploaded.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # The tag is the source of truth: refuse to publish if it disagrees with
+      # the manifest, rather than shipping a version nobody asked for.
+      - name: Verify tag matches package.json version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$manifest" ]; then
+            echo "Tag $tag does not match package.json version $manifest" >&2
+            exit 1
+          fi
+
+      - name: Package
+        run: npx vsce package --pre-release --no-dependencies
+
+      - name: Publish to the Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx vsce publish --pre-release --no-dependencies
+
+      - name: Attach the VSIX to a GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "*.vsix"
+          prerelease: true

@@ -1,0 +1,50 @@
+name: Agent compatibility report
+description: An ACP agent that does not work, or works only partially, with Rostrum.
+labels: ["compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Compatibility reports are the most useful thing you can send during the
+        pre-release. Never paste API keys, tokens, prompts, or workspace contents.
+  - type: input
+    id: agent
+    attributes:
+      label: Agent and version
+      placeholder: "e.g. Gemini CLI 0.4.2, or Claude Code via @agentclientprotocol/claude-agent-acp"
+    validations:
+      required: true
+  - type: input
+    id: invocation
+    attributes:
+      label: Configured command and args
+      description: Your `rostrum.agents` entry, with env values redacted.
+      placeholder: '{ "command": "gemini", "args": ["--acp"] }'
+    validations:
+      required: true
+  - type: dropdown
+    id: host
+    attributes:
+      label: Workspace host
+      options: [Local, Remote SSH, WSL, Dev container, Codespaces, Other]
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS and VS Code version
+      placeholder: "macOS 15.3 (arm64), VS Code 1.104.2"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 'Output from "Rostrum: Show Agent Log"'
+      description: Redact anything sensitive. Rendered as a code block automatically.
+      render: text

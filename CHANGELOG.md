@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.19.0
+
+First pre-release published to the VS Code Marketplace. Packaging and listing
+work only; no behavior changes.
+
+- Published as a pre-release under the `ryanpavlick` publisher.
+- Repository moved to `ryanpavlick/rostrum-acp`; every stale link updated.
+- Declared virtual workspaces unsupported, matching the existing untrusted-workspace
+  declaration: agents run as local processes and edit files on disk.
+- Dropped the inaccurate `Programming Languages` category; the extension
+  contributes no languages.
+- Trimmed the VSIX from 4.15 MB to under 1 MB by excluding the unreferenced
+  Marketplace icon and the documentation images, which are now hosted rather than
+  packaged.
+- Rewrote the Marketplace description to lead with concurrent background sessions
+  and approval gating.
+
 ## 0.18.0
 
 Review fixes, several of them correctness rather than polish.

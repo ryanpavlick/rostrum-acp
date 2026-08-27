@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Agent Client Protocol
+    url: https://agentclientprotocol.com/
+    about: Protocol questions, and how a given agent implements ACP.
