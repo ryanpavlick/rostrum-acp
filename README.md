@@ -3,11 +3,11 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.104%2B-007ACC?logo=visualstudiocode&logoColor=white)](https://code.visualstudio.com/)
 
-**One VS Code workspace for every [Agent Client Protocol (ACP)](https://agentclientprotocol.com/) coding agent.**
+**Conduct your [Agent Client Protocol (ACP)](https://agentclientprotocol.com/) coding agents from one VS Code workspace.**
 
-Rostrum ACP is an open-source VS Code extension that runs ACP-compatible coding agents locally, gives them a shared chat interface, and keeps their work visible: streaming responses, reasoning, tool calls, permissions, plans, edits, diffs, session history, and usage information.
+Rostrum ACP is an independent, open-source VS Code client for ACP. It runs compatible coding agents locally, gives you one place to steer their sessions, and keeps their work visible: streaming responses, reasoning, tool calls, permissions, plans, edits, diffs, session history, and usage information.
 
-Bring the agent you already use—such as Claude Code, Codex, GitHub Copilot CLI, Gemini CLI, Qwen Code, OpenCode, Hermes, or another ACP-compatible implementation—and use it from one consistent UI. Rostrum communicates with agents through JSON-RPC over standard input/output using the official [`@agentclientprotocol/sdk`](https://www.npmjs.com/package/@agentclientprotocol/sdk).
+Rostrum is protocol-first rather than vendor-first: native ACP agents and adapter-backed CLIs appear through the same review surface, while each agent's advertised capabilities decide which controls are enabled. It communicates with agents through JSON-RPC over standard input/output using the official [`@agentclientprotocol/sdk`](https://www.npmjs.com/package/@agentclientprotocol/sdk).
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/ryanpavlick/rostrum-acp/main/docs/images/rostrum-workspace-overview.png" alt="Conceptual dark-mode coding workspace with a Rostrum chat panel, tool activity, agent approval, and a change diff." width="100%">
@@ -82,7 +82,7 @@ npx vsce package --no-dependencies
 
 ```bash
 git clone https://github.com/ryanpavlick/rostrum-acp.git
-cd rostrum
+cd rostrum-acp
 npm ci
 npm run build
 ```

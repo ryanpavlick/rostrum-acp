@@ -143,8 +143,27 @@ input.onkeydown = (event) => {
   if (event.key === "Escape" && state.busy) {
     event.preventDefault();
     post({ type: "cancel" });
+    return;
+  }
+  if (event.key === "Tab" && event.shiftKey && !event.ctrlKey && !event.metaKey) {
+    // Shift+Tab is outdent in an editor, but this is a prompt box, not code.
+    event.preventDefault();
+    cyclePermissionMode();
   }
 };
+
+/**
+ * Step to the next permission mode and say which one out loud, since the
+ * selector may be scrolled out of view when the shortcut is used.
+ */
+function cyclePermissionMode(): void {
+  const at = PERMISSION_MODES.findIndex((mode) => mode.id === state.permissionMode);
+  const next = PERMISSION_MODES[(at + 1) % PERMISSION_MODES.length];
+  state.permissionMode = next.id;
+  post({ type: "setPermissionMode", mode: next.id });
+  renderOptions();
+  announce(`Permissions: ${next.label}. ${next.hint}.`);
+}
 
 const sendButton = el("button", "primary", "Send");
 sendButton.type = "button";
@@ -506,6 +525,36 @@ function pinScroll(wasAtBottom: boolean): void {
   if (wasAtBottom) log.scrollTop = log.scrollHeight;
 }
 
+/**
+ * Re-rendering a turn rebuilds every block in it, re-parsing markdown and
+ * re-highlighting code. A fast agent emits deltas far quicker than the display
+ * refreshes, so paint at most once per frame and only for turns that changed.
+ * The turn objects are the live ones from `state`, so the flush always renders
+ * the newest content rather than a queued snapshot of it.
+ */
+const dirtyTurns = new Map<string, Turn>();
+let flushHandle: number | undefined;
+
+function queueTurn(turn: Turn): void {
+  dirtyTurns.set(turn.id, turn);
+  if (flushHandle !== undefined) return;
+  flushHandle = requestAnimationFrame(() => {
+    flushHandle = undefined;
+    flushTurns();
+  });
+}
+
+function flushTurns(): void {
+  if (flushHandle !== undefined) {
+    cancelAnimationFrame(flushHandle);
+    flushHandle = undefined;
+  }
+  if (dirtyTurns.size === 0) return;
+  const pending = [...dirtyTurns.values()];
+  dirtyTurns.clear();
+  for (const turn of pending) upsertTurn(turn);
+}
+
 function upsertTurn(turn: Turn): void {
   const wasAtBottom = atBottom();
   const fresh = renderTurn(turn);
@@ -519,6 +568,13 @@ function upsertTurn(turn: Turn): void {
 }
 
 function renderAll(): void {
+  // A full rebuild supersedes every queued repaint; dropping them also stops a
+  // stale flush reattaching a node this pass has just replaced.
+  dirtyTurns.clear();
+  if (flushHandle !== undefined) {
+    cancelAnimationFrame(flushHandle);
+    flushHandle = undefined;
+  }
   log.replaceChildren();
   turnNodes.clear();
   for (const turn of state.turns) upsertTurn(turn);
@@ -925,7 +981,7 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
       const index = state.turns.findIndex((t) => t.id === message.turn.id);
       if (index === -1) state.turns.push(message.turn);
       else state.turns[index] = message.turn;
-      upsertTurn(message.turn);
+      queueTurn(message.turn);
       break;
     }
     case "turnDelta": {
@@ -934,7 +990,7 @@ window.addEventListener("message", (event: MessageEvent<HostMessage>) => {
         // Targeted write: never replace the whole list, or blocks the update
         // does not mention (an earlier tool call) would be erased.
         turn.blocks[message.index] = message.block;
-        upsertTurn(turn);
+        queueTurn(turn);
       }
       break;
     }
