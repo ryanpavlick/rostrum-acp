@@ -2,26 +2,6 @@
 
 ## 0.19.0
 
-First pre-release published to the VS Code Marketplace, plus the feature gaps
-found by reading competing ACP clients' shipped packages.
-
-- Mermaid diagrams render in their own webview, kept apart from the transcript
-  because Mermaid builds DOM from strings; its SVG is parsed inertly and
-  adopted as a node. The 3.3 MB bundle loads only when a diagram is opened.
-- Maths renders inline with KaTeX, parsed inertly for the same reason. Prose
-  like "it cost $5 and $10" is not mistaken for maths.
-- Live conversations are bounded by `rostrum.maxLiveSessions` and released
-  after `rostrum.sessionIdleMinutes` idle — but never when the agent supports
-  neither session/load nor session/resume, since it could not give them back.
-  Reaching the cap asks which conversation should give way.
-- Only the newest forty turns are built into the transcript, with the rest one
-  click away, so a long conversation no longer holds every block in the DOM.
-- Streamed updates coalesce to one repaint per frame.
-- Shift+Tab cycles permission modes; Ctrl+Alt+L attaches the editor selection.
-- New commands: open the last agent edit for a file, copy the session id, and
-  open a conversation in a chosen directory beneath the workspace.
-- Plans, queues, attachments and turns are named for assistive technology.
-
 First pre-release published to the VS Code Marketplace. Mostly packaging and
 listing work, plus beta support/reset polish.
 
@@ -31,9 +11,9 @@ listing work, plus beta support/reset polish.
   declaration: agents run as local processes and edit files on disk.
 - Dropped the inaccurate `Programming Languages` category; the extension
   contributes no languages.
-- Trimmed the VSIX from 4.15 MB to under 1 MB by excluding the unreferenced
+- Trimmed the VSIX from 4.15 MB to 213 KB by excluding the unreferenced
   Marketplace icon and the documentation images, which are now hosted rather than
-  packaged.
+  packaged. Diagram and maths rendering later brought it to 1.48 MB.
 - Rewrote the Marketplace description to lead with concurrent background sessions
   and approval gating.
 - Added a support policy and **Rostrum: Clear Local Data** for beta users who
@@ -47,6 +27,25 @@ listing work, plus beta support/reset polish.
 - Expanded **Rostrum: Show Agent Diagnostics** into a capability report with
   protocol version, session capabilities, prompt content, MCP transports, and
   detected agent methods.
+
+Feature gaps found by reading competing ACP clients' shipped packages:
+
+- Mermaid diagrams render in their own webview, kept apart from the transcript
+  because Mermaid builds DOM from strings; its SVG is parsed inertly and
+  adopted as a node. The 3.3 MB bundle loads only when a diagram is opened.
+- Maths renders inline with KaTeX, parsed inertly for the same reason. Prose
+  like "it cost $5 and $10" is not mistaken for maths.
+- Live conversations are bounded by `rostrum.maxLiveSessions` and released
+  after `rostrum.sessionIdleMinutes` idle — but never when the agent supports
+  neither session/load nor session/resume, since it could not give them back.
+  Reaching the cap asks which conversation should give way.
+- Only the newest forty turns are built into the transcript, with the rest one
+  click away, and streamed updates coalesce to one repaint per frame.
+- Shift+Tab cycles permission modes, and Ctrl+Alt+L attaches the editor
+  selection — the shortcut ACP Pro uses for the same action.
+- Open the last agent edit for a file, copy the session id, and open a
+  conversation in a chosen directory beneath the workspace.
+- Plans, queues, attachments and turns are named for assistive technology.
 
 ## 0.18.0
 
