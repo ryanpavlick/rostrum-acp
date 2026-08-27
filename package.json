@@ -541,6 +541,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.4.0",
+    "katex": "^0.18.4",
     "mermaid": "^11.17.2"
   },
   "allowScripts": {

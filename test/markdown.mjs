@@ -220,4 +220,38 @@ ok("inline content round-trips to its visible text");
   ok("no webview source turns agent output into markup");
 }
 
+
+// --- maths is captured as source, never as markup ---------------------------
+{
+  const para = { children: parseInline("Euler: $e^{i\\pi}+1=0$ closes it.") };
+  const math = para.children.find((node) => node.type === "math");
+  assert.ok(math, "inline maths between single dollars is recognised");
+  assert.equal(math.display, false);
+  assert.equal(math.text, "e^{i\\pi}+1=0");
+  ok("inline maths is captured as TeX source");
+}
+
+{
+  const para = { children: parseInline("$$\\int_0^1 x\\,dx$$") };
+  assert.equal(para.children[0].type, "math");
+  assert.equal(para.children[0].display, true, "double dollars are display maths");
+  ok("display maths is distinguished from inline");
+}
+
+{
+  // The common false positive: prices. The closing candidate is preceded by a
+  // space, so nothing here is maths.
+  const para = { children: parseInline("it cost $5 and $10 total") };
+  assert.equal(para.children.some((node) => node.type === "math"), false);
+  assert.equal(para.children.map((n) => n.text ?? "").join(""), "it cost $5 and $10 total");
+  ok("dollar amounts in prose are left as text");
+}
+
+{
+  // Code wins: a dollar inside a span is shell, not maths.
+  const para = { children: parseInline("run `echo $HOME` first") };
+  assert.equal(para.children.some((node) => node.type === "math"), false);
+  ok("a dollar inside code stays code");
+}
+
 console.log(`\nPASS: ${passed} markdown checks`);

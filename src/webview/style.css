@@ -418,3 +418,17 @@ h4.md-heading, h5.md-heading, h6.md-heading { font-size: 1em; }
 .show-earlier:hover {
   background: var(--vscode-list-hoverBackground);
 }
+
+/* Maths rendered by KaTeX. Display maths gets its own line and may scroll
+   rather than forcing the transcript sideways. */
+.math.display {
+  display: block;
+  overflow-x: auto;
+  padding: 4px 0;
+}
+
+/* Maths KaTeX could not parse falls back to its own source. */
+.math.failed {
+  font-family: var(--vscode-editor-font-family, monospace);
+  color: var(--vscode-errorForeground, #f14c4c);
+}

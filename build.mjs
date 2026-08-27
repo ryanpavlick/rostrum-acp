@@ -1,5 +1,5 @@
 import * as esbuild from "esbuild";
-import { copyFile, mkdir } from "node:fs/promises";
+import { copyFile, mkdir, readdir } from "node:fs/promises";
 
 const watch = process.argv.includes("--watch");
 
@@ -57,10 +57,28 @@ const manager = {
   logLevel: "info",
 };
 
-/** The stylesheet is static; esbuild only handles the two TS entry points. */
+/**
+ * Static assets. KaTeX's fonts are served from disk rather than inlined as
+ * data URIs: base64 would add roughly a third again to ~300 KB of woff2 and
+ * force a broader style policy, where `font-src ${webview.cspSource}` keeps
+ * them local files that nothing off-machine can substitute.
+ */
 async function copyStyles() {
   await mkdir("out/webview", { recursive: true });
   await copyFile("src/webview/style.css", "out/webview/style.css");
+  await copyFile("node_modules/katex/dist/katex.min.css", "out/webview/katex.css");
+
+  await mkdir("out/webview/fonts", { recursive: true });
+  const fonts = await readdir("node_modules/katex/dist/fonts");
+  await Promise.all(
+    fonts
+      // woff2 only: every VS Code host is Chromium and supports it, so the
+      // ttf and woff fallbacks are three quarters of the weight for nothing.
+      .filter((name) => name.endsWith(".woff2"))
+      .map((name) =>
+        copyFile(`node_modules/katex/dist/fonts/${name}`, `out/webview/fonts/${name}`),
+      ),
+  );
 }
 
 await copyStyles();

@@ -1941,6 +1941,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     const script = asset("out", "webview", "main.js");
     const style = asset("out", "webview", "style.css");
+    // KaTeX ships its own stylesheet; its @font-face rules resolve against
+    // out/webview/fonts, which is why font-src admits the webview's own origin.
+    const katexStyle = asset("out", "webview", "katex.css");
     const nonce = Buffer.from(crypto.randomUUID()).toString("base64").slice(0, 16);
 
     return `<!DOCTYPE html>
@@ -1948,7 +1951,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 <head>
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; img-src data:; media-src data:;" />
+      content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}'; img-src data:; media-src data:; font-src ${webview.cspSource};" />
+<link rel="stylesheet" href="${katexStyle}" />
 <link rel="stylesheet" href="${style}" />
 </head>
 <body>

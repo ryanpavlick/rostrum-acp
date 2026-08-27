@@ -16,7 +16,9 @@ export type Inline =
   | { type: "strong"; children: Inline[] }
   | { type: "em"; children: Inline[] }
   | { type: "strike"; children: Inline[] }
-  | { type: "link"; href: string; children: Inline[] };
+  | { type: "link"; href: string; children: Inline[] }
+  /** TeX source, left unrendered here — the tree never contains markup. */
+  | { type: "math"; text: string; display: boolean };
 
 export type MdNode =
   | { type: "paragraph"; children: Inline[] }
@@ -54,6 +56,18 @@ const INLINE_PATTERNS: {
 }[] = [
   // Code first: its content is literal and must not be re-parsed.
   { regex: /^`+([^`]|[^`][\s\S]*?[^`])`+/, build: (m) => ({ type: "code", text: m[1].trim() }) },
+  // Display maths before inline, or `$$x$$` reads as an empty inline pair.
+  {
+    regex: /^\$\$([\s\S]+?)\$\$/,
+    build: (m) => ({ type: "math", text: m[1].trim(), display: true }),
+  },
+  {
+    // A dollar in prose is usually money, not maths. Requiring a non-space
+    // just inside each delimiter leaves "it cost $5 and $10" alone, because
+    // the closing candidate is preceded by a space.
+    regex: /^\$(?=\S)([^\n$]*[^\s$])\$/,
+    build: (m) => ({ type: "math", text: m[1], display: false }),
+  },
   {
     regex: /^\[([^\]]*)\]\(([^)\s]*)\)/,
     build: (m) => {
@@ -96,7 +110,7 @@ export function parseInline(source: string): Inline[] {
     }
 
     let matched = false;
-    if (/[`[*_~<]/.test(rest[0])) {
+    if (/[`[*_~<$]/.test(rest[0])) {
       for (const pattern of INLINE_PATTERNS) {
         const match = pattern.regex.exec(rest);
         if (!match) continue;

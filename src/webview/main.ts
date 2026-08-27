@@ -12,6 +12,7 @@ import type {
 } from "../shared/protocol.js";
 
 import { parseMarkdown, type Inline, type MdNode } from "./markdown.js";
+import katex from "katex";
 import { highlight } from "./highlight.js";
 import {
   shouldCollapse,
@@ -424,6 +425,10 @@ function appendInline(host: HTMLElement, nodes: Inline[]): void {
       case "strike":
         host.append(wrapInline("s", node.children));
         break;
+      case "math": {
+        host.append(renderMath(node.text, node.display));
+        break;
+      }
       case "link": {
         const anchor = el("a", "md-link");
         anchor.href = node.href;
@@ -436,6 +441,34 @@ function appendInline(host: HTMLElement, nodes: Inline[]): void {
       }
     }
   }
+}
+
+/**
+ * KaTeX is XSS-safe by default and refuses to trust commands like \href, but
+ * it still hands back markup. Parse that inertly and adopt the node rather
+ * than assigning it, so this file keeps its one rule: nothing here turns agent
+ * output into markup. Maths that fails to parse degrades to its own source.
+ */
+function renderMath(tex: string, display: boolean): HTMLElement {
+  const holder = el("span", display ? "math display" : "math");
+  try {
+    const markup = katex.renderToString(tex, {
+      displayMode: display,
+      throwOnError: true,
+      // Default, and stated because it is the setting that matters: \href and
+      // friends stay untrusted.
+      trust: false,
+      strict: false,
+    });
+    const parsed = new DOMParser().parseFromString(markup, "text/html");
+    for (const child of Array.from(parsed.body.childNodes)) {
+      holder.append(document.importNode(child, true));
+    }
+  } catch {
+    holder.classList.add("failed");
+    holder.textContent = display ? `$$${tex}$$` : `$${tex}$`;
+  }
+  return holder;
 }
 
 function wrapInline(tag: "strong" | "em" | "s", children: Inline[]): HTMLElement {
