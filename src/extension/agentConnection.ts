@@ -30,6 +30,9 @@ export interface McpCapabilities {
   sse: boolean;
 }
 
+/** Long enough for an `npx` adapter to fetch its package on first run. */
+const HANDSHAKE_TIMEOUT_MS = 60_000;
+
 export const CLIENT_CAPABILITIES = {
   fs: { readTextFile: true, writeTextFile: true },
   terminal: true,
@@ -190,7 +193,10 @@ export class AgentConnection {
             `Persistent manager unavailable; launching ${options.agentKey} directly: ${String(error)}`,
           );
           persistent = false;
-          return launchAgent(definition, client, options.onStderr);
+          return launchAgent(definition, client, (chunk) => {
+            connection.noteStderr(chunk);
+            options.onStderr(chunk);
+          });
         }
       },
     });
@@ -199,11 +205,55 @@ export class AgentConnection {
     return connection;
   }
 
+  /**
+   * The last of the agent's own stderr, kept for when the handshake stalls.
+   * An agent that blocks on credentials or a trust prompt says so there and
+   * nowhere else — it never answers on the protocol at all.
+   */
+  private stderrTail = "";
+
+  /**
+   * An agent that starts but never answers `initialize` would otherwise hang
+   * the panel with no error and nothing to act on. Observed with an
+   * unauthenticated Gemini CLI, which blocks waiting for a credential rather
+   * than exiting. The bound is generous because an adapter launched through
+   * `npx` may be downloading its package on first run.
+   */
+  private async withHandshakeTimeout<T>(work: T | Promise<T>, timeoutMs: number): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        Promise.resolve(work),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            const tail = this.stderrTail.trim().split("\n").filter(Boolean).slice(-4).join("\n");
+            reject(
+              new Error(
+                `${this.agentKey} did not answer the ACP handshake within ${Math.round(timeoutMs / 1000)}s. ` +
+                  "It may be waiting for authentication, or for a trust prompt that cannot be answered here." +
+                  (tail ? `\n\nLast output from the agent:\n${tail}` : ""),
+              ),
+            );
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  noteStderr(chunk: string): void {
+    this.stderrTail = (this.stderrTail + chunk).slice(-2000);
+  }
+
   /** Perform (or adopt the supervisor's cached) ACP handshake. */
-  async handshake(): Promise<InitializeResponse> {
+  async handshake(timeoutMs = HANDSHAKE_TIMEOUT_MS): Promise<InitializeResponse> {
     const init =
       this.handle.initialize ??
-      (await this.agent.initialize({ protocolVersion: 1, clientCapabilities: CLIENT_CAPABILITIES }));
+      (await this.withHandshakeTimeout(
+        this.agent.initialize({ protocolVersion: 1, clientCapabilities: CLIENT_CAPABILITIES }),
+        timeoutMs,
+      ));
     this.initialize = init;
     this.capabilities = readCapabilities(init.agentCapabilities, this.agent);
     const prompt = init.agentCapabilities?.promptCapabilities;

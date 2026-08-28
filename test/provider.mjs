@@ -922,5 +922,29 @@ ok("active editor file and selection attach to the next prompt");
   ok("a custom limit is honoured and refuses rather than evicting blindly");
 }
 
+// --- an agent that never answers the handshake ------------------------------
+{
+  const { AgentConnection } = await import("../out/test/agentConnection.js");
+  // A handshake that never settles is exactly what an unauthenticated agent
+  // produces: the process starts, says something on stderr, and then waits.
+  const connection = Object.create(AgentConnection.prototype);
+  connection.agentKey = "stalled";
+  // `agent` is read from the handle, so the stalled agent goes there.
+  connection.handle = { agent: { initialize: () => new Promise(() => {}) } };
+  connection.noteStderr("Gemini CLI is not running in a trusted directory.\n");
+
+  const started = Date.now();
+  await assert.rejects(
+    () => connection.handshake(150),
+    (error) => {
+      assert.match(error.message, /did not answer the ACP handshake/);
+      assert.match(error.message, /trusted directory/, "the agent's own reason is carried through");
+      return true;
+    },
+  );
+  assert.ok(Date.now() - started < 3000, "it gives up rather than hanging");
+  ok("an agent that never answers the handshake fails with its own stderr, not silence");
+}
+
 await fs.rm(tmp, { recursive: true, force: true });
 console.log(`\nPASS: ${passed} provider checks`);
