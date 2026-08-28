@@ -10,7 +10,7 @@ Rostrum ACP is an independent, open-source VS Code client for ACP. It runs compa
 Rostrum is protocol-first rather than vendor-first: native ACP agents and adapter-backed CLIs appear through the same review surface, while each agent's advertised capabilities decide which controls are enabled. It communicates with agents through JSON-RPC over standard input/output using the official [`@agentclientprotocol/sdk`](https://www.npmjs.com/package/@agentclientprotocol/sdk).
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ryanpavlick/rostrum-acp/main/docs/images/rostrum-window.png" alt="VS Code with the Rostrum panel open. An agent has streamed a reply, run a read and an edit tool call, and produced a file diff; an approval card asks whether to run the test suite, offering Allow once, Always allow, and Reject." width="100%">
+  <img src="docs/images/rostrum-window.png" alt="VS Code with the Rostrum panel open. An agent has streamed a reply, run a read and an edit tool call, and produced a file diff; an approval card asks whether to run the test suite, offering Allow once, Always allow, and Reject." width="100%">
 </p>
 
 > [!IMPORTANT]
@@ -23,7 +23,7 @@ Rostrum is protocol-first rather than vendor-first: native ACP agents and adapte
 3. **Work from a consistent interface.** ACP lets Rostrum translate the common parts—prompts, streaming output, permissions, sessions, and edits—into one VS Code experience, while capability negotiation preserves each agent’s unique features.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ryanpavlick/rostrum-acp/main/docs/images/rostrum-acp-workflow.png" alt="Conceptual diagram of several agent processes joining through an ACP routing hub to one VS Code workspace, where the user reviews permissions and diffs." width="100%">
+  <img src="docs/images/rostrum-acp-workflow.png" alt="Conceptual diagram of several agent processes joining through an ACP routing hub to one VS Code workspace, where the user reviews permissions and diffs." width="100%">
 </p>
 
 ## Why Rostrum
@@ -191,7 +191,7 @@ Claude Code and Codex use ACP adapters in these examples; launching their base C
 Rostrum’s UI remains the source of truth for interactive agent questions and permission prompts. Do not use automatic approval for unfamiliar codebases or credentials-bearing environments.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/ryanpavlick/rostrum-acp/main/docs/images/rostrum-panel.png" alt="The Rostrum panel in the sidebar: a streamed agent reply, collapsed read and edit tool calls, a file diff, and an approval card asking to run the test suite. Below it the Sessions list shows one active conversation marked as needing approval." width="340">
+  <img src="docs/images/rostrum-panel.png" alt="The Rostrum panel in the sidebar: a streamed agent reply, collapsed read and edit tool calls, a file diff, and an approval card asking to run the test suite. Below it the Sessions list shows one active conversation marked as needing approval." width="340">
 </p>
 
 An agent is blocked until you answer. A conversation waiting on you says so in the Sessions list, so a background turn that needs approval is findable without opening it.

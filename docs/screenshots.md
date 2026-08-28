@@ -67,6 +67,19 @@ is called.
 - Crop to the panel and the editor beside it. A full 6K desktop is mostly
   wallpaper once the Marketplace scales it down.
 - Check for anything from your own machine: paths, branch names, other files.
-- Compress. The two illustrations currently in `docs/images/` are over 1 MB
-  each, which is why `docs/**` is excluded from the VSIX and the README
-  references them by absolute URL instead.
+- Compress. `rostrum-acp-workflow.png` is still over 1 MB, against 128 KB and
+  157 KB for the two real captures.
+
+## Why the README uses relative paths
+
+Because `vsce` rewrites them. A relative `docs/images/x.png` is turned into an
+absolute `https://github.com/<owner>/<repo>/raw/HEAD/docs/images/x.png` when
+the extension is packaged, so one spelling serves all three places: the editor
+preview, GitHub, and the Marketplace.
+
+Writing the absolute URL by hand instead breaks the preview in VS Code and
+gains nothing. `docs/**` stays out of the VSIX either way, since the packaged
+readme points at the hosted copies.
+
+Both forms still require the repository to be public and the images pushed
+before the Marketplace listing can load them.
