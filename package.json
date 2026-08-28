@@ -527,7 +527,8 @@
     "test:compat": "npm run build:test -s && node test/compat-local.mjs",
     "test:extension": "npm run build -s && node test/e2e/run.mjs",
     "test:container": "node test/container.mjs",
-    "clean:test": "node -e \"require('node:fs').rmSync('out/test',{recursive:true,force:true})\""
+    "clean:test": "node -e \"require('node:fs').rmSync('out/test',{recursive:true,force:true})\"",
+    "demo": "npm run build -s && node scripts/demo.mjs"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

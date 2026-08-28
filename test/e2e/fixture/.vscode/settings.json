@@ -1,0 +1,12 @@
+{
+  "rostrum.agents": {
+    "Demo Agent": {
+      "command": "node",
+      "args": ["../../demo-agent.mjs"]
+    }
+  },
+  "rostrum.defaultAgent": "Demo Agent",
+  "rostrum.permissionMode": "ask",
+  "workbench.colorTheme": "Default Dark Modern",
+  "workbench.startupEditor": "none"
+}

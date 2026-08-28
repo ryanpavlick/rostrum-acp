@@ -51,8 +51,12 @@ Rostrum is for developers who want the freedom to select the best coding agent f
 - Agent capabilities are negotiated at runtime. Rostrum only exposes optional actions—such as forking, slash commands, session settings, attachments, or MCP—that the connected agent advertises.
 - Prompt queueing, mid-turn steering, text/image/audio attachments, slash-command completion, configurable session options, and token-usage reporting where supported by the agent.
 - Editor context commands for attaching the active file, current selection, diagnostics, open editors, or workspace layout to the next prompt; `@` file mentions and pasted images are staged as attachments.
+- Mermaid diagrams open in a separate viewer, and maths renders inline. Diagrams are deliberately kept out of the transcript: the renderer never turns agent output into markup, and Mermaid builds DOM from strings.
+- A capability report showing what each agent *declared* against what it has actually done — a method advertised at startup and failing every call is named as such, rather than silently offered and broken.
+- Live conversations are bounded (`rostrum.maxLiveSessions`, `rostrum.sessionIdleMinutes`), releasing idle ones while keeping their transcripts loadable — never one the agent could not reopen.
 - Global or agent-specific MCP server configuration, with capability-gated stdio, HTTP, and SSE transports.
 - Agent discovery for common locally installed CLIs, registry-based agent installation, and actionable validation for malformed agent definitions.
+- Keyboard shortcuts for the things done most: `Shift+Tab` cycles permission modes, `Ctrl+Alt+L` (`Cmd+Alt+L`) attaches the editor selection, and `Alt+Left`/`Alt+Right` step through an agent's edits to a file.
 - Workspace-host execution for local, SSH, WSL, and dev-container workspaces, so the agent runs beside the code it is changing. Agents that support ACP additional directories can receive multi-root workspaces.
 
 ## Requirements
