@@ -1,9 +1,14 @@
 # Screenshots
 
-The README currently carries concept illustrations. They should be replaced
-with the real interface: a Marketplace listing that shows an artist's
-impression of a product is a weaker listing than one showing the product, and
-readers can tell the difference.
+The README now shows the real interface. `rostrum-window.png` and
+`rostrum-panel.png` were captured from the demo window below; the concept
+illustration they replaced has been deleted. Only `rostrum-acp-workflow.png`
+remains a drawing, and it is an architecture diagram rather than a picture of
+the product pretending to be one.
+
+Retake them whenever the panel changes shape. Two bugs were found purely by
+looking at the first capture — a duplicated Queue button and a control row that
+ran off the edge of the sidebar — so it is worth doing after any UI work.
 
 Capturing a real screenshot needs a real agent, which normally means
 credentials, a network, and whatever the model happens to say that day. The
