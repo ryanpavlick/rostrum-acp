@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { DiagramPanel } from "./diagram.js";
+import { CapabilityLedger, type CapabilityReport } from "./ledger.js";
 import type { ContentBlock, SessionInfo } from "@agentclientprotocol/sdk";
 import type {
   Block,
@@ -117,6 +118,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     mcpCapabilities: { http: boolean; sse: boolean };
     protocolVersion?: number;
     methods: Record<string, boolean>;
+    observed: CapabilityReport[];
   }> {
     return [...this.connections.values()].map((connection) => ({
       agentKey: connection.agentKey,
@@ -129,6 +131,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       mcpCapabilities: connection.mcpCaps,
       protocolVersion: connection.initialize?.protocolVersion,
       methods: agentMethods(connection.agent),
+      // What it claimed, against what it has actually done.
+      observed: this.ledger.report(connection.agentKey),
     }));
   }
 
@@ -479,6 +483,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /** Built on first use: the diagram bundle is large and rarely wanted. */
   private diagramPanel: DiagramPanel | undefined;
 
+  /**
+   * What each agent claimed against what it has actually managed. Declaration
+   * alone is not evidence: an agent can advertise session/load and fail every
+   * call, and gating on the declaration turns that into a feature that is
+   * offered and then breaks.
+   */
+  readonly ledger = new CapabilityLedger();
+
   private get diagrams(): DiagramPanel {
     this.diagramPanel ??= new DiagramPanel(this.context.extensionUri);
     return this.diagramPanel;
@@ -679,6 +691,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     this.connections.set(agentKey, connection);
+
+    // Record what it claimed, so a later failure can be set against it.
+    this.ledger.declare(connection.agentKey, {
+      "session/load": connection.capabilities.loadSession,
+      "session/resume": connection.capabilities.resumeSession,
+      "session/list": connection.capabilities.listSessions,
+      "session/fork": connection.capabilities.forkSession,
+      "session/delete": connection.capabilities.deleteSession,
+      "session/setMode": connection.capabilities.setSessionMode,
+    });
     this.watchExit(connection);
     if (connection.droppedBytes > 0) {
       // Reattaching to a supervisor that had to discard output is not a
@@ -1176,10 +1198,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const seenCursors = new Set<string>();
     let cursor: string | null | undefined;
     for (let page = 0; page < 100; page += 1) {
-      const response = await agent.listSessions({
-        cwd: this.workspaceRoot(),
-        ...(cursor ? { cursor } : {}),
-      });
+      const response = await this.ledger.watch(connection.agentKey, "session/list", () =>
+        agent.listSessions!({
+          cwd: this.workspaceRoot(),
+          ...(cursor ? { cursor } : {}),
+        }),
+      );
       discovered.push(...response.sessions.map((session) => sessionMeta(session, connection.agentKey)));
       cursor = response.nextCursor;
       if (!cursor) break;
@@ -1641,7 +1665,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     try {
-      await controller.connection.agent.setSessionMode({ sessionId, modeId });
+      await this.ledger.watch(controller.agentKey, "session/setMode", () =>
+        controller.connection.agent.setSessionMode!({ sessionId, modeId }),
+      );
       controller.session.currentMode = modeId;
       if (this.isActive(controller)) await this.pushState(controller.session.modes, modeId);
     } catch (error) {
@@ -1699,12 +1725,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       // `session/update` while the request is still in flight.
       controller.adoptSessionId(sessionId);
       try {
-        const response = await connection.agent.loadSession({
+        const response = await this.ledger.watch(connection.agentKey, "session/load", () =>
+          connection.agent.loadSession!({
           sessionId,
           cwd: this.workspaceRoot(),
           mcpServers: this.mcpServers(connection),
           ...this.additionalDirectories(connection),
-        });
+        }),
+        );
         this.applySessionSetup(controller, response ?? undefined);
         await this.activate(controller);
         return controller;
@@ -1721,12 +1749,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (connection.agent.resumeSession && connection.capabilities.resumeSession) {
       controller.adoptSessionId(sessionId);
       try {
-        const response = await connection.agent.resumeSession({
+        const response = await this.ledger.watch(connection.agentKey, "session/resume", () =>
+          connection.agent.resumeSession!({
           sessionId,
           cwd: this.workspaceRoot(),
           mcpServers: this.mcpServers(connection),
           ...this.additionalDirectories(connection),
-        });
+        }),
+        );
         controller.session.setTurns(stored?.turns ?? []);
         this.applySessionSetup(controller, response);
         await this.activate(controller);

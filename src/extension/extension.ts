@@ -14,6 +14,7 @@ import {
 } from "./timeline.js";
 import { formatForPath, serializeTranscript } from "./export.js";
 import { ChangeHistory } from "./history.js";
+import { STATE_TEXT } from "./ledger.js";
 import { migrateLegacySettings } from "./migrate.js";
 import { availability, fetchRegistry, settingsKey, toDefinition } from "./registry.js";
 import { SessionStore } from "./store.js";
@@ -146,6 +147,19 @@ export function activate(context: vscode.ExtensionContext): void {
         output.appendLine(`    prompt content: ${prompt}`);
         output.appendLine(`    MCP transports: ${mcp}`);
         output.appendLine(`    methods present: ${methods}`);
+
+        // What it claimed, set against what it has actually managed. A
+        // declaration is not evidence, and this is the line worth pasting
+        // into a compatibility report.
+        output.appendLine("    observed:");
+        for (const entry of row.observed) {
+          const counts =
+            entry.attempts === 0
+              ? ""
+              : ` (${entry.attempts - entry.failures}/${entry.attempts} succeeded)`;
+          const why = entry.lastError ? ` — last error: ${entry.lastError}` : "";
+          output.appendLine(`      ${entry.method}: ${STATE_TEXT[entry.state]}${counts}${why}`);
+        }
       }
       output.show(true);
     }),
