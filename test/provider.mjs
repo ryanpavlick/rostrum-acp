@@ -71,6 +71,8 @@ class ScriptedAgent {
       agentCapabilities: {
         loadSession: this.supportsLoad,
         promptCapabilities: this.promptCapabilities,
+        // An empty object under sessionCapabilities means "supported".
+        ...(this.supportsFork ? { sessionCapabilities: { fork: {} } } : {}),
       },
       authMethods: this.authMethods,
     };
@@ -81,6 +83,17 @@ class ScriptedAgent {
     if (this.failLoadFor === sessionId) throw new Error(`cannot load ${sessionId}`);
     this.loaded.push(sessionId);
     return {};
+  }
+
+  /**
+   * Present so `readCapabilities` sees the method; whether it is advertised is
+   * `supportsFork`, and whether it actually works is `forkFails` — the two are
+   * independent, which is the whole point.
+   */
+  async unstable_forkSession({ sessionId }) {
+    if (this.forkFails) throw new Error(`Resource not found: ${sessionId}`);
+    this.nextSessionId += 1;
+    return { sessionId: `session-${this.nextSessionId}` };
   }
 
   /** Simulate the agent process dying under the client. */
@@ -944,6 +957,25 @@ ok("active editor file and selection attach to the next prompt");
   );
   assert.ok(Date.now() - started < 3000, "it gives up rather than hanging");
   ok("an agent that never answers the handshake fails with its own stderr, not silence");
+}
+
+// --- a broken capability stops being offered --------------------------------
+{
+  const { provider, agent, posted } = await build();
+  agent.supportsFork = true;
+  await provider.startAgent("scripted");
+
+  const capsOf = () => posted.filter((m) => m.type === "state").at(-1).state.capabilities;
+  assert.equal(capsOf().forkSession, true, "an advertised capability is offered");
+
+  // Modelled on Claude Code, which advertises session/fork and answers
+  // "Resource not found" to every call.
+  agent.forkFails = true;
+  await provider.handleMessage({ type: "forkSession" });
+
+  assert.equal(capsOf().forkSession, false,
+    "after failing, the control is withdrawn rather than left to fail again");
+  ok("a capability that fails every call stops being offered");
 }
 
 await fs.rm(tmp, { recursive: true, force: true });

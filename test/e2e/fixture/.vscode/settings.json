@@ -7,6 +7,6 @@
   },
   "rostrum.defaultAgent": "Demo Agent",
   "rostrum.permissionMode": "ask",
-  "workbench.colorTheme": "Default Dark Modern",
+  "workbench.colorTheme": "Dark Modern",
   "workbench.startupEditor": "none"
 }

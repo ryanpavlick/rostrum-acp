@@ -692,15 +692,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     this.connections.set(agentKey, connection);
 
-    // Record what it claimed, so a later failure can be set against it.
-    this.ledger.declare(connection.agentKey, {
-      "session/load": connection.capabilities.loadSession,
-      "session/resume": connection.capabilities.resumeSession,
-      "session/list": connection.capabilities.listSessions,
-      "session/fork": connection.capabilities.forkSession,
-      "session/delete": connection.capabilities.deleteSession,
-      "session/setMode": connection.capabilities.setSessionMode,
-    });
     this.watchExit(connection);
     if (connection.droppedBytes > 0) {
       // Reattaching to a supervisor that had to discard output is not a
@@ -713,6 +704,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     try {
       const init = await connection.handshake();
+
+      // Only now are the capabilities known. Recording the claim before the
+      // handshake captured an empty set, so a later failure had nothing to be
+      // set against and the control was never withdrawn.
+      this.ledger.declare(connection.agentKey, {
+        "session/load": connection.capabilities.loadSession,
+        "session/resume": connection.capabilities.resumeSession,
+        "session/list": connection.capabilities.listSessions,
+        "session/fork": connection.capabilities.forkSession,
+        "session/delete": connection.capabilities.deleteSession,
+        "session/setMode": connection.capabilities.setSessionMode,
+      });
       await this.authenticateIfNeeded(connection, init.authMethods ?? []);
       await this.syncSessionCatalog(connection);
     } catch (error) {
@@ -1003,6 +1006,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
    * advertising neither load nor resume, dehydrating would quietly turn live
    * work into read-only history, so those sessions are never chosen.
    */
+  /**
+   * What the panel should offer, which is not the same as what the agent
+   * advertised. Claude Code declares session/fork and answers "Resource not
+   * found"; offering the button anyway means a control that always fails.
+   * A capability observed to fail every time stops being offered.
+   */
+  private observedCapabilities(connection: AgentConnection | undefined): Capabilities {
+    if (!connection) return { ...NO_CAPABILITIES } as Capabilities;
+    const caps = connection.capabilities;
+    const key = connection.agentKey;
+    const usable = (declared: boolean, method: string) =>
+      this.ledger.usable(key, method, declared);
+    return {
+      ...caps,
+      loadSession: usable(caps.loadSession, "session/load"),
+      resumeSession: usable(caps.resumeSession, "session/resume"),
+      listSessions: usable(caps.listSessions, "session/list"),
+      forkSession: usable(caps.forkSession, "session/fork"),
+      deleteSession: usable(caps.deleteSession, "session/delete"),
+      setSessionMode: usable(caps.setSessionMode, "session/setMode"),
+    };
+  }
+
   private canRehydrate(controller: ManagedSession): boolean {
     const caps = controller.connection.capabilities;
     const agentKey = controller.agentKey;
@@ -1875,17 +1901,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     try {
-      const forked = await agent.unstable_forkSession({
-        sessionId: controller.sessionId,
-        cwd: this.workspaceRoot(),
-        ...this.additionalDirectories(controller.connection),
-      });
+      const forked = await this.ledger.watch(controller.agentKey, "session/fork", () =>
+        agent.unstable_forkSession!({
+          sessionId: controller.sessionId!,
+          cwd: this.workspaceRoot(),
+          ...this.additionalDirectories(controller.connection),
+        }),
+      );
       // The transcript so far carries over; only the id diverges.
       controller.adoptSessionId(forked.sessionId);
       await this.persistSession(controller);
       await this.pushState();
     } catch (error) {
       this.post({ type: "error", message: `Fork failed: ${String(error)}` });
+      // The ledger has just recorded the failure; refresh so a control that
+      // cannot work stops being offered.
+      await this.pushState();
     }
   }
 
@@ -1898,7 +1929,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (connection?.agent.deleteSession && connection.capabilities.deleteSession) {
       // Best effort: the local copy goes regardless of what the agent says.
       try {
-        await connection.agent.deleteSession({ sessionId });
+        await this.ledger.watch(owner!, "session/delete", () =>
+          connection.agent.deleteSession!({ sessionId }),
+        );
       } catch {
         // The agent may not know this id; the local copy still goes.
       }
@@ -1964,7 +1997,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       modes: modes ?? controller?.session.modes ?? [],
       currentMode: currentMode ?? controller?.session.currentMode ?? null,
       sessions: await this.store.list(),
-      capabilities: connection?.capabilities ?? ({ ...NO_CAPABILITIES } as Capabilities),
+      capabilities: this.observedCapabilities(connection),
       usage: controller?.usage ?? null,
       configOptions: controller?.configOptions ?? [],
       commands: controller?.commands ?? [],
