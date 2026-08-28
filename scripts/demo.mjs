@@ -27,11 +27,11 @@ const executable = await downloadAndUnzipVSCode(
 console.log(`
 Rostrum demo window
 -------------------
-  1. Open the Rostrum view in the Activity Bar, then Rostrum Chat.
-  2. Run "Rostrum: New Session" and choose Demo Agent.
-  3. Send any prompt. The agent replies with reasoning, a plan, a tool call,
-     a file diff, a diagram, maths, and an approval request it leaves waiting.
-  4. Capture the window. On macOS: Cmd+Shift+4, then Space, then click it.
+  The window drives itself: it opens the chat panel, connects the demo agent,
+  and sends a prompt. Within a few seconds it shows reasoning, a plan, a tool
+  call, a file diff, a diagram, maths, and an approval request left waiting.
+
+  Capture it. On macOS: Cmd+Shift+4, then Space, then click the window.
 
 Save shots into docs/images/. Close the window to exit.
 `);
@@ -47,7 +47,12 @@ const child = spawn(
     "--disable-extensions",
     "--new-window",
   ],
-  { stdio: "inherit" },
+  {
+    stdio: "inherit",
+    // The extension drives itself when this is set, so the window arrives
+    // already showing a turn instead of waiting to be clicked through.
+    env: { ...process.env, ROSTRUM_DEMO: "1" },
+  },
 );
 
 child.on("exit", (code) => {

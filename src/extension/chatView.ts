@@ -1220,6 +1220,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   // --- message handling ----------------------------------------------------
 
+  /**
+   * Drive the panel as if the user had, for `npm run demo`. Gated on an
+   * environment variable set only by that script: it must never be reachable
+   * from a real install, so it is not a command and not a setting.
+   */
+  async demoBootstrap(agentKey: string, prompt: string): Promise<void> {
+    await this.startAgent(agentKey);
+    await this.handleMessage({ type: "prompt", text: prompt });
+  }
+
   private async handleMessage(message: ViewMessage): Promise<void> {
     const controller = this.active();
     switch (message.type) {

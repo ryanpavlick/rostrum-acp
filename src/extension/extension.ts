@@ -83,6 +83,39 @@ export function activate(context: vscode.ExtensionContext): void {
     timeline.refresh();
   });
 
+  // `npm run demo` opens a window to be photographed. Gated on an environment
+
+  // variable that only that script sets, so a real install can never reach it.
+
+  if (process.env.ROSTRUM_DEMO === "1") {
+
+    void (async () => {
+
+      await vscode.commands.executeCommand("rostrum.chatView.focus");
+
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+
+      try {
+
+        await chat.demoBootstrap(
+
+          process.env.ROSTRUM_DEMO_AGENT ?? "Demo Agent",
+
+          process.env.ROSTRUM_DEMO_PROMPT ?? "Bound the transcript so long sessions stay fast.",
+
+        );
+
+      } catch (error) {
+
+        output.appendLine(`Demo bootstrap failed: ${String(error)}`);
+
+      }
+
+    })();
+
+  }
+
+
   context.subscriptions.push(
     output,
     chat,
