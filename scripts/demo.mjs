@@ -40,6 +40,9 @@ const child = spawn(
   executable,
   [
     fixture,
+    // Open the file the agent edits, so the editor shows real code beside the
+    // panel instead of an empty watermark.
+    path.join(fixture, "src", "webview", "transcript.ts"),
     `--extensionDevelopmentPath=${root}`,
     // A throwaway profile, so the screenshot is not of somebody's customised
     // editor and does not disturb their real one.

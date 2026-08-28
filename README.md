@@ -10,7 +10,7 @@ Rostrum ACP is an independent, open-source VS Code client for ACP. It runs compa
 Rostrum is protocol-first rather than vendor-first: native ACP agents and adapter-backed CLIs appear through the same review surface, while each agent's advertised capabilities decide which controls are enabled. It communicates with agents through JSON-RPC over standard input/output using the official [`@agentclientprotocol/sdk`](https://www.npmjs.com/package/@agentclientprotocol/sdk).
 
 <p align="center">
-  <img src="docs/images/rostrum-window.png" alt="VS Code with the Rostrum panel open. An agent has streamed a reply, run a read and an edit tool call, and produced a file diff; an approval card asks whether to run the test suite, offering Allow once, Always allow, and Reject." width="100%">
+  <img src="docs/images/rostrum-annotated.png" alt="VS Code with Rostrum in use. On the left, tracked sessions, changed files and an edit timeline. In the middle, the file the agent is editing. On the right, the conversation: folded reasoning, a rendered diagram, inline maths, tool calls with their input and output, a file diff, and controls for queueing, steering, session mode and permission mode." width="100%">
 </p>
 
 > [!IMPORTANT]

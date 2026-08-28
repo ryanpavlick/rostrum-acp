@@ -115,7 +115,11 @@ const declaredCommands = contributes.commands.map((entry) => entry.command);
 
 // --- views declared in the manifest exist in one container ------------------
 {
-  const containers = (contributes.viewsContainers?.activitybar ?? []).map((c) => c.id);
+  // Containers can be contributed to the activity bar, the secondary sidebar
+  // or the bottom panel, and a view may live in any of them.
+  const containers = Object.values(contributes.viewsContainers ?? {})
+    .flat()
+    .map((c) => c.id);
   for (const container of Object.keys(contributes.views ?? {})) {
     assert.ok(
       containers.includes(container),
