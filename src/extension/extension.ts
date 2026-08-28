@@ -25,7 +25,14 @@ import { STATE_TEXT } from "./ledger.js";
 import { migrateLegacySettings } from "./migrate.js";
 import { availability, fetchRegistry, settingsKey, toDefinition } from "./registry.js";
 import { SessionStore } from "./store.js";
-import { ChangedFilesTree, OutlineTree, SessionsTree, TimelineTree, UsageStatsTree } from "./trees.js";
+import {
+  ChangedFilesTree,
+  OutlineTree,
+  SessionsTree,
+  TimelineTree,
+  UsageStatsTree,
+  sessionIdOf,
+} from "./trees.js";
 import { UsageTracker } from "./usage.js";
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -302,7 +309,14 @@ export function activate(context: vscode.ExtensionContext): void {
       await chat.revealSession(controllerId);
     }),
 
-    vscode.commands.registerCommand("rostrum.deleteSession", async (sessionId: string) => {
+    vscode.commands.registerCommand("rostrum.deleteSession", async (target: unknown) => {
+      const sessionId = sessionIdOf(target);
+      if (!sessionId) {
+        void vscode.window.showWarningMessage(
+          "Select a saved session in the Sessions view to delete it.",
+        );
+        return;
+      }
       const answer = await vscode.window.showWarningMessage(
         "Delete this Rostrum session? Its local transcript and agent-side session (when supported) will be removed.",
         { modal: true },
@@ -316,7 +330,14 @@ export function activate(context: vscode.ExtensionContext): void {
       sessions.refresh();
     }),
 
-    vscode.commands.registerCommand("rostrum.exportSession", async (sessionId: string) => {
+    vscode.commands.registerCommand("rostrum.exportSession", async (selected: unknown) => {
+      const sessionId = sessionIdOf(selected);
+      if (!sessionId) {
+        void vscode.window.showWarningMessage(
+          "Select a saved session in the Sessions view to export it.",
+        );
+        return;
+      }
       const session = await store.load(sessionId);
       if (!session) {
         void vscode.window.showWarningMessage("Only sessions with a saved local transcript can be exported.");

@@ -12,7 +12,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { SessionsTree } from "../out/test/trees.js";
+import { SessionsTree , sessionIdOf } from "../out/test/trees.js";
 import { SessionStore } from "../out/test/store.js";
 
 let passed = 0;
@@ -203,4 +203,26 @@ assert.deepEqual(
 ok("with nothing running the view is pure history again");
 
 await fs.rm(tmp, { recursive: true, force: true });
+
+// --- commands are handed different things by different entry points --------
+{
+  // A context-menu action receives the tree element; the palette and the panel
+  // pass an id. Accepting only one is how deleting from the Sessions view
+  // became a silent no-op.
+  assert.equal(sessionIdOf("sess-1"), "sess-1");
+  assert.equal(sessionIdOf({ type: "stored", session: { sessionId: "sess-2" } }), "sess-2");
+  assert.equal(sessionIdOf({ type: "live", session: { sessionId: "sess-3" } }), "sess-3");
+  ok("a session id is resolved from either a tree node or a bare id");
+}
+
+{
+  // Anything that cannot name a session must resolve to nothing, so the
+  // command can say so instead of deleting whatever it happens to find.
+  assert.equal(sessionIdOf(undefined), undefined);
+  assert.equal(sessionIdOf(""), undefined);
+  assert.equal(sessionIdOf({ type: "group", id: "today", label: "Today" }), undefined);
+  assert.equal(sessionIdOf({ type: "live", session: { sessionId: null } }), undefined);
+  ok("a node that names no session resolves to nothing rather than a wrong id");
+}
+
 console.log(`\nPASS: ${passed} sessions view checks`);

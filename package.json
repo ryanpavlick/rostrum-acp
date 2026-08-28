@@ -37,40 +37,44 @@
     "views": {
       "rostrum-explorer": [
         {
+          "type": "webview",
+          "id": "rostrum.chatView",
+          "name": "Rostrum Chat",
+          "icon": "$(comment-discussion)",
+          "initialSize": 1000
+        },
+        {
           "id": "rostrum.sessionsView",
           "name": "Sessions",
           "icon": "$(list-unordered)",
           "initialSize": 300
         },
         {
-          "id": "rostrum.outlineView",
-          "name": "Outline",
-          "icon": "$(list-tree)",
-          "initialSize": 300
-        },
-        {
           "id": "rostrum.changedFilesView",
           "name": "Changes",
           "icon": "$(edit-code)",
-          "initialSize": 300
+          "initialSize": 300,
+          "visibility": "collapsed"
         },
         {
           "id": "rostrum.timelineView",
           "name": "Timeline",
           "icon": "$(diff)",
-          "initialSize": 300
+          "initialSize": 300,
+          "visibility": "collapsed"
+        },
+        {
+          "id": "rostrum.outlineView",
+          "name": "Outline",
+          "icon": "$(list-tree)",
+          "initialSize": 300,
+          "visibility": "collapsed"
         },
         {
           "id": "rostrum.usageStatsView",
           "name": "Usage Stats",
           "icon": "$(dashboard)",
           "visibility": "collapsed"
-        },
-        {
-          "type": "webview",
-          "id": "rostrum.chatView",
-          "name": "Rostrum Chat",
-          "icon": "$(comment-discussion)"
         }
       ]
     },

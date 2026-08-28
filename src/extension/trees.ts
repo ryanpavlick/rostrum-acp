@@ -23,6 +23,21 @@ import { formatDuration, formatTokens, type UsageTotals, type UsageTracker } fro
  * One row in the Sessions view: a heading, a conversation this window is
  * running, or a saved transcript.
  */
+/**
+ * The session id behind whatever a command was handed.
+ *
+ * A `view/item/context` command receives the tree element; the same command
+ * invoked from the palette or from the panel receives an id. Accepting only
+ * one means the command works from one entry point and silently does nothing
+ * from the other, which is how deleting from the Sessions view came to be a
+ * no-op with no error.
+ */
+export function sessionIdOf(target: unknown): string | undefined {
+  if (typeof target === "string") return target || undefined;
+  const node = target as { session?: { sessionId?: string | null } } | undefined;
+  return node?.session?.sessionId ?? undefined;
+}
+
 export type SessionNode =
   | { type: "group"; id: string; label: string; children: SessionNode[] }
   | { type: "live"; session: LiveSession }
