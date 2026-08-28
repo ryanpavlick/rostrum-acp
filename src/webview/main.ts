@@ -202,16 +202,6 @@ const attachButton = el("button", "ghost", "Attach");
 attachButton.type = "button";
 attachButton.onclick = () => post({ type: "attach" });
 
-const queueButton = el("button", "ghost", "Queue");
-queueButton.type = "button";
-queueButton.title = "Run this after the current turn";
-queueButton.onclick = () => {
-  const text = input.value.trim();
-  if (!text) return;
-  input.value = "";
-  post({ type: "queuePrompt", text });
-};
-
 const steerButton = el("button", "ghost", "Steer");
 steerButton.type = "button";
 steerButton.title = "Inject guidance into the running turn";
@@ -228,7 +218,7 @@ const fileList = el("div", "command-list");
 fileList.style.display = "none";
 
 const composerRow = el("div", "composer-row");
-composerRow.append(sendButton, stopButton, queueButton, steerButton, attachButton);
+composerRow.append(sendButton, stopButton, steerButton, attachButton);
 composer.append(commandList, fileList, input, composerRow);
 
 input.addEventListener("paste", (event) => {
@@ -1018,8 +1008,11 @@ function applyBusy(): void {
   // The composer stays live while busy so prompts can be queued or steered.
   stopButton.style.display = state.busy ? "" : "none";
   steerButton.style.display = state.busy ? "" : "none";
-  queueButton.style.display = state.busy ? "" : "none";
+  // While the agent is working the primary action is to queue, so the button
+  // says so. A second button saying the same thing sat beside it and posted
+  // the identical message.
   sendButton.textContent = state.busy ? "Queue" : "Send";
+  sendButton.title = state.busy ? "Run this after the current turn" : "";
   log.setAttribute("aria-busy", String(state.busy));
 
   // Announce the transition, not every render, or the status region repeats

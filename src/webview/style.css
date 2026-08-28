@@ -176,7 +176,9 @@ details.reasoning summary { color: var(--vscode-descriptionForeground); font-sty
 }
 
 .composer { border-top: 1px solid var(--vscode-panel-border); padding: 6px 8px; }
-.composer-row { display: flex; gap: 6px; margin-top: 4px; }
+/* The panel lives in a sidebar that is often ~290px wide, where a single row
+   of controls runs off the edge and the last one cannot be clicked. */
+.composer-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .input {
   width: 100%; resize: vertical; padding: 6px;
   background: var(--vscode-input-background); color: var(--vscode-input-foreground);

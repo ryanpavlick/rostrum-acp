@@ -2,11 +2,19 @@
   "rostrum.agents": {
     "Demo Agent": {
       "command": "node",
-      "args": ["../../demo-agent.mjs"]
+      "args": [
+        "../../demo-agent.mjs"
+      ]
     }
   },
   "rostrum.defaultAgent": "Demo Agent",
   "rostrum.permissionMode": "ask",
   "workbench.colorTheme": "Dark Modern",
-  "workbench.startupEditor": "none"
+  "workbench.startupEditor": "none",
+  "chat.commandCenter.enabled": false,
+  "workbench.welcomePage.walkthroughs.openOnInstall": false,
+  "update.showReleaseNotes": false,
+  "telemetry.telemetryLevel": "off",
+  "window.commandCenter": false,
+  "workbench.secondarySideBar.defaultVisibility": "hidden"
 }

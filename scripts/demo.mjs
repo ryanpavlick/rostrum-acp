@@ -46,6 +46,11 @@ const child = spawn(
     `--user-data-dir=${path.join(root, ".vscode-test", "demo-profile")}`,
     "--disable-extensions",
     "--new-window",
+    // A fresh profile otherwise opens on VS Code's own welcome and sign-in
+    // nudges, which sit on top of the thing being photographed.
+    "--skip-welcome",
+    "--skip-release-notes",
+    "--disable-workspace-trust",
   ],
   {
     stdio: "inherit",
