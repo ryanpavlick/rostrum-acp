@@ -268,6 +268,7 @@ function renderCommandSuggestions(): void {
   }
   for (const command of hits) {
     const row = el("button", "command-row");
+    row.type = "button";
     row.append(el("span", "command-name", `/${command.name}`));
     if (command.description) row.append(el("span", "command-desc", command.description));
     row.onclick = () => {
@@ -525,9 +526,24 @@ function renderDiff(block: Extract<Block, { kind: "diff" }>): HTMLElement {
   const oldLines = block.oldText ? block.oldText.split("\n") : [];
   const newLines = block.newText.split("\n");
 
-  for (const line of oldLines) body.append(el("div", "del", `- ${line}`));
-  for (const line of newLines) body.append(el("div", "add", `+ ${line}`));
+  // The +/- prefixes are the only thing distinguishing an added line from a
+  // removed one, and a screen reader reads them as punctuation or not at all.
+  for (const line of oldLines) {
+    const row = el("div", "del", `- ${line}`);
+    row.setAttribute("aria-label", `removed: ${line}`);
+    body.append(row);
+  }
+  for (const line of newLines) {
+    const row = el("div", "add", `+ ${line}`);
+    row.setAttribute("aria-label", `added: ${line}`);
+    body.append(row);
+  }
 
+  details.setAttribute(
+    "aria-label",
+    `Diff for ${block.path}: ${newLines.length} line${newLines.length === 1 ? "" : "s"} added, ` +
+      `${oldLines.length} removed`,
+  );
   details.append(body);
   return details;
 }
@@ -613,6 +629,8 @@ function renderTool(block: Extract<Block, { kind: "tool" }>): HTMLElement {
 /** A labelled, copyable, highlighted chunk of tool input or output. */
 function toolSection(label: string, text: string, lang: string): HTMLElement {
   const section = el("div", "tool-section");
+  section.setAttribute("role", "group");
+  section.setAttribute("aria-label", label);
   const heading = el("div", "tool-section-label", label);
   const block = renderCodeBlock(lang, text);
   block.classList.add("tool-code");
@@ -914,6 +932,7 @@ function renderPlan(): void {
 
   const done = state.plan.filter((entry) => entry.status === "completed").length;
   const details = el("details", "plan");
+  details.setAttribute("aria-label", `Plan: ${done} of ${state.plan.length} steps done`);
   details.open = done < state.plan.length;
   details.append(el("summary", undefined, `Plan — ${done}/${state.plan.length} done`));
 
@@ -1098,6 +1117,10 @@ function renderQuestions(request: PendingRequest, questions: Question[]): HTMLEl
 
 function renderPermission(request: PendingRequest): HTMLElement {
   const card = el("div", "card");
+  // This is the one thing in the panel that must not be missed: the agent is
+  // blocked until it is answered.
+  card.setAttribute("role", "group");
+  card.setAttribute("aria-label", `Permission needed: ${request.title}`);
   card.append(el("div", "card-title", request.title));
   for (const block of request.content ?? []) card.append(renderBlock(block));
 
@@ -1108,6 +1131,8 @@ function renderPermission(request: PendingRequest): HTMLElement {
       option.kind.startsWith("allow") ? "primary" : "ghost",
       option.name,
     );
+    button.type = "button";
+    button.setAttribute("aria-label", `${option.name} — ${request.title}`);
     button.onclick = () => {
       post({ type: "respond", requestId: request.requestId, optionId: option.optionId });
       renderPending(null);
