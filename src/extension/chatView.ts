@@ -1005,7 +1005,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
    */
   private canRehydrate(controller: ManagedSession): boolean {
     const caps = controller.connection.capabilities;
-    return caps.loadSession === true || caps.resumeSession === true;
+    const agentKey = controller.agentKey;
+    // Declaring is not enough. Codex advertises both session/load and
+    // session/resume and answers "Internal error" to each, so trusting the
+    // declaration would release a conversation nothing can bring back — the
+    // precise outcome this check exists to prevent.
+    return (
+      this.ledger.usable(agentKey, "session/load", caps.loadSession === true) ||
+      this.ledger.usable(agentKey, "session/resume", caps.resumeSession === true)
+    );
   }
 
   /** Idle, not on screen, nothing outstanding, and restorable. */

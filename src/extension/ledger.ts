@@ -124,6 +124,22 @@ export class CapabilityLedger {
       .sort((a, b) => a.method.localeCompare(b.method));
   }
 
+  /** The observed state of one method, without building the whole report. */
+  stateFor(agentKey: string, method: string): CapabilityState {
+    const record = this.byAgent.get(agentKey)?.get(method);
+    return record ? stateOf(record) : "not-declared";
+  }
+
+  /**
+   * Whether a capability can still be relied on. A method that has been called
+   * and has never once worked is not usable, whatever it advertised — the
+   * declaration is a claim, and this is the evidence against it.
+   */
+  usable(agentKey: string, method: string, declared: boolean): boolean {
+    if (!declared) return false;
+    return this.stateFor(agentKey, method) !== "failing";
+  }
+
   /** Everything worth a user's attention: declared and not behaving. */
   suspect(agentKey: string): CapabilityReport[] {
     return this.report(agentKey).filter(

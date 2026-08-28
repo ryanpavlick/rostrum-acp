@@ -84,6 +84,68 @@ listed above.
 
 ## Results
 
+### Claude Code (ACP adapter)
+
+Probed 2026-08-27 on macOS 26 (darwin-arm64), Node v25.8.1, with
+`npx -y @agentclientprotocol/claude-agent-acp`. No live prompt.
+
+| Check | Result | Detail |
+| --- | --- | --- |
+| initialize | yes | ACP protocol v1; no auth methods advertised; image and embedded-context prompts. Took 31.4s, almost all of it `npx` fetching the adapter on first run |
+| session/new | yes | 6 modes, 5 configuration options |
+| session/prompt | skipped | not run |
+| session/cancel | yes | Accepted |
+| session/load | yes | Advertised and completed |
+| session/resume | yes | Advertised and completed |
+| session/list | yes | Advertised and completed |
+| session/fork | **no** | Advertised, then failed: `Resource not found: <session id>` |
+
+### Codex (ACP adapter)
+
+Probed 2026-08-27 on macOS 26 (darwin-arm64), Node v25.8.1, with
+`npx -y @agentclientprotocol/codex-acp`. No live prompt.
+
+| Check | Result | Detail |
+| --- | --- | --- |
+| initialize | yes | ACP protocol v1; auth methods `api-key` and `chat-gpt`; image and embedded-context prompts. Took 20.8s including the `npx` fetch |
+| session/new | yes | 3 modes, 5 configuration options |
+| session/prompt | skipped | not run |
+| session/cancel | yes | Accepted |
+| session/load | **no** | Advertised, then failed: `Internal error` |
+| session/resume | **no** | Advertised, then failed: `Internal error` |
+| session/list | yes | Advertised and completed |
+| session/fork | not advertised | Not called |
+
+### Gemini CLI
+
+Probed 2026-08-27 on macOS 26 (darwin-arm64) with `gemini --acp`, version 0.47.0.
+**Did not reach a handshake**, for two reasons worth recording separately.
+
+Without `GEMINI_CLI_TRUST_WORKSPACE=true` it exits immediately: *"Gemini CLI is
+not running in a trusted directory."* With it set, `initialize` never answers —
+`~/.gemini/settings.json` selects `gemini-api-key` auth and no key was present,
+so the process waits for a credential rather than failing.
+
+`--acp` is correct for this version; `--experimental-acp` is the deprecated
+spelling. The invocation in Rostrum's detection list is right.
+
+### What these three found
+
+Three declared-but-broken capabilities across two agents, on first contact:
+Claude Code advertises `session/fork` and fails it, and Codex advertises both
+`session/load` and `session/resume` and fails both. Rostrum gates optional
+actions on the declaration, so each of these would have been offered and then
+broken. This is what the capability ledger records, and why session
+dehydration now checks observed behaviour rather than the declaration — a
+Codex conversation released on its advertised `session/load` could not have
+been brought back.
+
+The Gemini result found a fault in Rostrum rather than in Gemini: the ACP
+handshake had no timeout, so an agent that starts and then waits for a
+credential would have hung the panel with no error. It is now bounded, and
+reports the agent's own stderr.
+
+
 ### OpenCode
 
 Probed 2026-08-26 on Linux with `opencode acp`. The live prompt was: “Reply

@@ -105,4 +105,27 @@ const stateFor = (agentKey, ledger, method) =>
   ok("observations are per agent and can be forgotten individually");
 }
 
+{
+  // Modelled on Codex, which advertises session/load and session/resume and
+  // answers "Internal error" to both.
+  const l = new CapabilityLedger();
+  l.declare("codex", { "session/load": true, "session/resume": true });
+  assert.equal(l.usable("codex", "session/load", true), true,
+    "before any evidence, a declaration is taken at face value");
+
+  l.record("codex", "session/load", false, "Internal error");
+  assert.equal(l.usable("codex", "session/load", true), false,
+    "a method that has never worked is not usable, whatever it declared");
+  assert.equal(l.usable("codex", "session/resume", true), true,
+    "the other method is judged on its own record");
+
+  l.record("codex", "session/load", true);
+  assert.equal(l.usable("codex", "session/load", true), true,
+    "one success makes it unreliable rather than unusable");
+
+  assert.equal(l.usable("codex", "session/fork", false), false,
+    "something never declared is never usable");
+  ok("usability follows the evidence, not the declaration");
+}
+
 console.log(`\nPASS: ${passed} ledger checks`);
