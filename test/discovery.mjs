@@ -12,6 +12,8 @@ import {
   definitionFor,
   detectAgents,
   findOnPath,
+  mergeProfiles,
+  registryProfiles,
   validateAgentDefinition,
 } from "../out/test/discovery.js";
 
@@ -147,5 +149,48 @@ assert.match(missingOnPath.message, /not found on PATH/);
 const missingAbsolute = await checkCommandExists({ command: "/opt/gone/qwen" }, installed);
 assert.match(missingAbsolute.message, /does not exist or is not executable/);
 ok("a command that is not installed is reported before the handshake can hang");
+
+
+// --- detection profiles derived from the registry ---------------------------
+{
+  const derived = registryProfiles([
+    {
+      id: "opencode", name: "OpenCode",
+      // Registry binary targets are unpacked into a directory, so the command
+      // is written relative. On PATH it is the bare name.
+      distribution: { binary: { "darwin-aarch64": { cmd: "./opencode", args: ["acp"], archive: "x" } } },
+    },
+    { id: "gemini", name: "Gemini CLI", distribution: { npx: { package: "@google/gemini-cli", args: ["--acp"] } } },
+    { id: "nothing", name: "No distribution" },
+  ]);
+  assert.equal(derived.length, 1, "only binary distributions name a PATH executable");
+  assert.equal(derived[0].binaries[0], "opencode", "the leading ./ is stripped");
+  assert.deepEqual(derived[0].acp, { mode: "direct", args: ["acp"] });
+  ok("registry binary targets become detection profiles; npx entries do not");
+}
+
+{
+  const derived = registryProfiles([
+    { id: "evil", name: "Path escape", distribution: { binary: { "darwin-aarch64": { cmd: "../../bin/sh", args: [], archive: "x" } } } },
+    { id: "win", name: "Windows", distribution: { binary: { "darwin-aarch64": { cmd: "./agent.exe", args: ["acp"], archive: "x" } } } },
+  ]);
+  assert.deepEqual(derived.map((p) => p.binaries[0]), ["agent"],
+    "a cmd containing a path separator is refused, and .exe is trimmed");
+  ok("a registry entry cannot inject a path into PATH detection");
+}
+
+{
+  const curated = KNOWN_AGENTS;
+  const merged = mergeProfiles(curated, [
+    { id: "claude-acp", name: "Duplicate id", binaries: ["something-else"], acp: { mode: "direct", args: [] } },
+    { id: "other", name: "Duplicate binary", binaries: ["claude"], acp: { mode: "direct", args: [] } },
+    { id: "fresh", name: "Genuinely new", binaries: ["brand-new-agent"], acp: { mode: "direct", args: ["acp"] } },
+  ]);
+  assert.equal(merged.length, curated.length + 1, "only the genuinely new profile is added");
+  assert.ok(merged.some((p) => p.id === "fresh"));
+  const claude = merged.find((p) => p.id === "claude-acp");
+  assert.equal(claude.acp.mode, "adapter", "the curated adapter entry is not overwritten");
+  ok("curated profiles win over registry-derived ones on id and on binary");
+}
 
 console.log(`\nPASS: ${passed} discovery checks`);

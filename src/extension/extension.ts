@@ -3,7 +3,14 @@ import * as vscode from "vscode";
 import { managerLogs, managerStateFile, managerStatus, managerStop } from "./agentProcess.js";
 import { ChatViewProvider } from "./chatView.js";
 import { AgentDiffProvider } from "./diffs.js";
-import { detectAgents, nodeProbe, type DetectedAgent } from "./discovery.js";
+import {
+  KNOWN_AGENTS,
+  detectAgents,
+  mergeProfiles,
+  nodeProbe,
+  registryProfiles,
+  type DetectedAgent,
+} from "./discovery.js";
 import {
   TIME_WINDOWS,
   agentsIn,
@@ -628,7 +635,15 @@ function duration(milliseconds: number): string {
 async function detectAndAddAgents(chat: ChatViewProvider): Promise<void> {
   const found = await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Window, title: "Looking for installed ACP agents…" },
-    () => detectAgents(nodeProbe()),
+    async () => {
+      // Widen detection with whatever the registry has added since this
+      // version shipped. A registry that is unreachable is not a failure:
+      // detection falls back to the curated list.
+      const derived = await fetchRegistry()
+        .then(registryProfiles)
+        .catch(() => [] as ReturnType<typeof registryProfiles>);
+      return detectAgents(nodeProbe(), mergeProfiles(KNOWN_AGENTS, derived));
+    },
   );
 
   if (found.length === 0) {

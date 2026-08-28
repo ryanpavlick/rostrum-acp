@@ -2,10 +2,11 @@
  * Find ACP agents already installed on this machine, and check that a
  * configured agent is actually runnable.
  *
- * The ACP registry publishes how to *install* an agent, not what its binary is
- * called once installed, so the mapping from a local command to an ACP
- * invocation is curated here. Two shapes exist and they are not
- * interchangeable:
+ * The registry's binary targets name the executable they unpack and the flags
+ * that put it in ACP mode, so those profiles are derived rather than
+ * transcribed. Its npx entries name an npm package and say nothing about what
+ * ends up on PATH, so those stay curated below — along with the agents that
+ * need an adapter. Two shapes exist and they are not interchangeable:
  *
  * - `direct`: the CLI speaks ACP itself, given a flag.
  * - `adapter`: the CLI does not; a separate ACP adapter package wraps it. A
@@ -15,6 +16,8 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { AgentDefinition } from "./agentProcess.js";
+
+import type { RegistryAgent } from "./registry.js";
 
 export type AcpInvocation =
   | { mode: "direct"; args: string[] }
@@ -67,6 +70,18 @@ export const KNOWN_AGENTS: AgentProfile[] = [
     name: "Qwen Code",
     binaries: ["qwen"],
     acp: { mode: "direct", args: ["--acp", "--experimental-skills"] },
+  },
+  {
+    id: "opencode",
+    name: "OpenCode",
+    binaries: ["opencode"],
+    acp: { mode: "direct", args: ["acp"] },
+  },
+  {
+    id: "hermes",
+    name: "Hermes",
+    binaries: ["hermes"],
+    acp: { mode: "direct", args: ["acp"] },
   },
   {
     id: "goose",
@@ -187,6 +202,58 @@ export function definitionFor(profile: AgentProfile, resolved: string): AgentDef
 }
 
 /** Every known agent whose CLI is present on this machine. */
+/**
+ * Detection profiles derived from the ACP registry.
+ *
+ * A registry binary target names the executable it unpacks (`cmd`) and the
+ * arguments that put it in ACP mode, which is exactly what PATH detection
+ * needs — so an agent the user installed themselves is found without anyone
+ * transcribing its invocation here, and the list widens as the registry does.
+ *
+ * Only binary distributions qualify. An `npx` entry names an npm package, and
+ * guessing which executable that leaves on PATH would produce configurations
+ * that fail at launch; those stay curated above.
+ */
+export function registryProfiles(agents: RegistryAgent[]): AgentProfile[] {
+  const profiles: AgentProfile[] = [];
+  for (const agent of agents) {
+    const targets = Object.values(agent.distribution?.binary ?? {});
+    const target = targets[0];
+    if (!target?.cmd) continue;
+
+    // Targets are unpacked into a directory, so `cmd` is written relative
+    // ("./opencode"). On PATH it is the bare name.
+    const binary = target.cmd.replace(/^\.[\\/]/, "").replace(/\.exe$/i, "");
+    if (!binary || binary.includes("/") || binary.includes("\\")) continue;
+
+    profiles.push({
+      id: agent.id,
+      name: agent.name ?? agent.id,
+      binaries: [binary],
+      acp: { mode: "direct", args: [...(target.args ?? [])] },
+    });
+  }
+  return profiles;
+}
+
+/**
+ * Curated profiles first, then anything the registry adds that they do not
+ * already cover. Curated entries win on id: they carry adapter handling and
+ * the notes explaining why an agent needs one.
+ */
+export function mergeProfiles(
+  curated: AgentProfile[],
+  derived: AgentProfile[],
+): AgentProfile[] {
+  const seenIds = new Set(curated.map((profile) => profile.id));
+  const seenBinaries = new Set(curated.flatMap((profile) => profile.binaries));
+  const extra = derived.filter(
+    (profile) =>
+      !seenIds.has(profile.id) && !profile.binaries.some((name) => seenBinaries.has(name)),
+  );
+  return [...curated, ...extra];
+}
+
 export async function detectAgents(
   probe: PathProbe,
   profiles: AgentProfile[] = KNOWN_AGENTS,
