@@ -98,6 +98,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
     void (async () => {
 
+      // The tracking views and the conversation now live in different
+      // containers, so revealing one no longer reveals the other. Open the
+      // trees first, then the chat, which leaves the chat focused.
+      await vscode.commands.executeCommand("rostrum.sessionsView.focus");
       await vscode.commands.executeCommand("rostrum.chatView.focus");
 
       await new Promise((resolve) => setTimeout(resolve, 1200));

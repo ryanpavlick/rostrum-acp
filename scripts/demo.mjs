@@ -11,6 +11,7 @@ import * as path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { downloadAndUnzipVSCode } from "@vscode/test-electron";
+import { reapProfile } from "../test/reap.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixture = path.join(root, "test", "e2e", "fixture");
@@ -63,7 +64,12 @@ const child = spawn(
   },
 );
 
-child.on("exit", (code) => {
+const profile = path.join(root, ".vscode-test", "demo-profile");
+
+child.on("exit", async (code) => {
   if (inherited !== undefined) process.env.ELECTRON_RUN_AS_NODE = inherited;
+  // The supervisor is detached and owns the agent, so closing the window
+  // leaves both running unless they are reaped.
+  await reapProfile(profile);
   process.exitCode = code ?? 0;
 });
