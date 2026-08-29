@@ -5,7 +5,7 @@
 
 **Conduct your [Agent Client Protocol (ACP)](https://agentclientprotocol.com/) coding agents from one VS Code workspace.**
 
-Rostrum ACP is an independent, open-source VS Code client for ACP. It runs compatible coding agents locally, gives you one place to steer their sessions, and keeps their work visible: streaming responses, reasoning, tool calls, permissions, plans, edits, diffs, session history, and usage information.
+Rostrum ACP is an free, open-source VS Code client for ACP. It runs compatible coding agents locally, gives you one place to steer their sessions, and keeps their work visible: streaming responses, reasoning, tool calls, permissions, plans, edits, diffs, session history, and usage information.
 
 Rostrum is protocol-first rather than vendor-first: native ACP agents and adapter-backed CLIs appear through the same review surface, while each agent's advertised capabilities decide which controls are enabled. It communicates with agents through JSON-RPC over standard input/output using the official [`@agentclientprotocol/sdk`](https://www.npmjs.com/package/@agentclientprotocol/sdk).
 
